@@ -231,7 +231,7 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       </div>
 
       {/* Budget card */}
-      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
         <CardContent className="p-4 sm:p-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-stone-800 flex items-center gap-2">
@@ -345,7 +345,7 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
 
       {/* Category breakdown */}
       {summary && summary.byCategory.length > 0 ? (
-        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="p-4 sm:p-5">
             <h2 className="font-bold text-stone-800 mb-3">صرفت في إيه؟</h2>
             <ul className="space-y-3">
@@ -410,7 +410,7 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       ) : null}
 
       {/* Transactions */}
-      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
         <CardContent className="p-4 sm:p-5">
           <Tabs value={tab} onValueChange={(v) => setTab(v as TxTab)} dir="rtl">
             <div className="flex items-center justify-between gap-2 mb-3">

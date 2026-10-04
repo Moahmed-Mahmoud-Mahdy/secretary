@@ -334,7 +334,7 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
       </div>
 
       {/* Quick add */}
-      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
         <CardContent className="p-3">
           <div className="flex items-center gap-2">
             <Input
@@ -375,7 +375,7 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
           ))}
         </div>
       ) : visible.length === 0 ? (
-        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="py-12 text-center">
             <p className="text-4xl mb-3" aria-hidden>📋</p>
             <p className="font-bold text-stone-700">مفيش مهام لسه</p>

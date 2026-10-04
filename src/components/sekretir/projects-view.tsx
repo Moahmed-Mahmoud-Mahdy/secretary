@@ -192,7 +192,7 @@ export function ProjectsView({ refreshKey, onAuthError }: ProjectsViewProps) {
           ))}
         </div>
       ) : projects.length === 0 ? (
-        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="py-12 text-center">
             <p className="text-4xl mb-3" aria-hidden>🗂️</p>
             <p className="font-bold text-stone-700">مفيش مشاريع لسه</p>

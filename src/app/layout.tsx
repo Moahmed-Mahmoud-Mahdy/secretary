@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   description:
     "سكرتير: مساعد شخصي ذكي بالمصري — مهام، مواعيد، مشاريع، فلوس، وتنظيم يومك كلها بكلمة واحدة.",
   keywords: ["سكرتير", "مساعد ذكي", "مهام", "مصاريف", "AI assistant"],
+  manifest: "/manifest.json",
   icons: {
     icon: "/logo.png",
   },

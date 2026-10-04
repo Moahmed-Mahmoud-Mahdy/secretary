@@ -1,0 +1,19 @@
+{
+  "name": "سكرتير — مساعدك الشخصي الذكي",
+  "short_name": "سكرتير",
+  "description": "مساعد شخصي ذكي بالمصري — مهام، مواعيد، مشاريع، فلوس، وتنظيم يومك كلها بكلمة واحدة.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafaf9",
+  "theme_color": "#d97706",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

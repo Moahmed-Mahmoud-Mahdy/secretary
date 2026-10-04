@@ -264,7 +264,7 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
       </div>
 
       {/* Week strip */}
-      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
         <CardContent className="p-3">
           <div className="flex items-center gap-1">
             <Button
@@ -316,7 +316,7 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
       </Card>
 
       {/* Agenda */}
-      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
         <CardContent className="p-4 sm:p-5">
           <h2 className="font-bold text-stone-800 mb-1">
             {weekdayName(selectedKey)} — {relativeDayFromKey(selectedKey)}

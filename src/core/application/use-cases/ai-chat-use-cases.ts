@@ -241,6 +241,66 @@ export class AiChatUseCases {
         executed.push({ type: 'PROJECT', action: 'CREATED', summary: `عملتلك مشروع «${created.name}»`, refId: created.id });
         return;
       }
+      case 'CREATE_PROJECT_WITH_TASKS': {
+        const name = str(action.name) ?? str(action.title);
+        if (!name) throw new Error('project breakdown without name');
+        const created = await this.projectUseCases.create(userId, {
+          name,
+          description: str(action.description),
+          deadline: str(action.deadline),
+        });
+        const rawTasks = Array.isArray(action.tasks) ? action.tasks.slice(0, 8) : [];
+        const titles: string[] = [];
+        for (const raw of rawTasks) {
+          const t = (raw ?? {}) as Record<string, unknown>;
+          const title = str(t.title);
+          if (!title) continue;
+          await this.taskUseCases.create(userId, {
+            title,
+            priority: str(t.priority) ?? 'MEDIUM',
+            estimatedMinutes: num(t.estimatedMinutes),
+            projectId: created.id,
+          });
+          titles.push(title);
+        }
+        executed.push({
+          type: 'PROJECT',
+          action: 'CREATED',
+          summary:
+            titles.length > 0
+              ? `عملتلك مشروع «${created.name}» فيه ${titles.length} مهام: ${titles.join('، ')}`
+              : `عملتلك مشروع «${created.name}»`,
+          refId: created.id,
+        });
+        return;
+      }
+      case 'ADD_SUBTASKS': {
+        const parentName = str(action.taskName) ?? str(action.title) ?? '';
+        const all = await this.tasks.listAll(userId);
+        const parent = matchTaskTitle(all, parentName);
+        if (!parent) {
+          executed.push({ type: 'TASK', action: 'EXECUTED', summary: `ملقيتش مهمة باسم «${parentName || '؟'}» أضيفلها خطوات` });
+          return;
+        }
+        const rawSubtasks = Array.isArray(action.subtasks) ? action.subtasks.slice(0, 10) : [];
+        let added = 0;
+        for (const raw of rawSubtasks) {
+          const title = typeof raw === 'string' ? raw.trim() : str((raw as Record<string, unknown>)?.title);
+          if (!title) continue;
+          await this.taskUseCases.create(userId, { title, parentId: parent.id, projectId: parent.projectId });
+          added += 1;
+        }
+        executed.push({
+          type: 'TASK',
+          action: 'CREATED',
+          summary:
+            added > 0
+              ? `ضفت ${added} ${added === 1 ? 'خطوة' : 'خطوات'} تحت «${parent.title}»`
+              : `مفيش خطوات أقدر أضيفها تحت «${parent.title}»`,
+          refId: parent.id,
+        });
+        return;
+      }
       case 'COMPLETE_TASK': {
         const all = await this.tasks.listAll(userId);
         const task = matchTaskTitle(all, str(action.taskName) ?? str(action.title) ?? '');

@@ -69,6 +69,7 @@ export const AI_INTENTS = [
   'QUERY',
   'CHITCHAT',
   'MULTI_ACTION',
+  'SUGGEST_PLAN',
   'UNKNOWN',
 ] as const;
 export type AiIntent = (typeof AI_INTENTS)[number];
@@ -80,6 +81,8 @@ export const AI_ACTION_TYPES = [
   'CREATE_INCOME',
   'SET_BUDGET',
   'CREATE_PROJECT',
+  'CREATE_PROJECT_WITH_TASKS',
+  'ADD_SUBTASKS',
   'COMPLETE_TASK',
   'DELETE_TASK',
   'UPDATE_TASK',

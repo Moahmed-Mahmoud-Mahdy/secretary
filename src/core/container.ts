@@ -12,6 +12,7 @@ import { BcryptPasswordHasher } from './infrastructure/auth/bcrypt-hasher';
 import { JoseTokenService } from './infrastructure/auth/jose-token-service';
 import { ZaiAssistantService } from './infrastructure/ai/zai-assistant-service';
 import { ZaiSpeechService } from './infrastructure/ai/zai-speech-service';
+import { ZaiTextToSpeechService } from './infrastructure/ai/zai-tts-service';
 
 import { PrismaUserRepository } from './infrastructure/repositories/prisma-user-repository';
 import { PrismaTaskRepository } from './infrastructure/repositories/prisma-task-repository';
@@ -43,8 +44,10 @@ const hasher = new BcryptPasswordHasher();
 const tokens = new JoseTokenService(process.env.AUTH_SECRET);
 const ai = new ZaiAssistantService();
 const speech = new ZaiSpeechService();
+const speechOut = new ZaiTextToSpeechService();
 
 export const tokenService = tokens;
+export const speechOutService = speechOut;
 
 // ---- use cases ----
 const taskUseCases = new TaskUseCases(tasks, projects, plans);
@@ -78,6 +81,7 @@ export const container = {
   plans,
   notifications,
   speech,
+  speechOut,
   authUseCases,
   taskUseCases,
   projectUseCases,

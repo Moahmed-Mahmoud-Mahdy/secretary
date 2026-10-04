@@ -2,6 +2,7 @@ import { serializeNotification } from '../../domain/services/serialize';
 import {
   calendarInsights,
   financeInsights,
+  personalizationInsights,
   planningInsights,
   taskInsights,
 } from '../../domain/services/insights';
@@ -182,10 +183,17 @@ export class DashboardUseCases {
           ? { title: nextEvent.title, minutesUntil: Math.round((new Date(nextEvent.startAt).getTime() - now.getTime()) / 60000) }
           : null,
       }),
+      ...personalizationInsights(buildPersonalizationSnapshot(taskRecords, now)),
     ];
 
     // ---------- notifications ----------
-    await this.syncNotifications(user, taskRecords, budget, monthSpent, now);
+    const completedLast7 = taskRecords.filter(
+      (t) => t.completedAt && now.getTime() - t.completedAt.getTime() <= 7 * 86_400_000
+    ).length;
+    const spentLast7 = expenses
+      .filter((e) => now.getTime() - e.date.getTime() <= 7 * 86_400_000)
+      .reduce((s, e) => s + e.amount, 0);
+    await this.syncNotifications(user, taskRecords, budget, monthSpent, now, spentLast7, completedLast7);
     const [unread, unreadCount] = await Promise.all([
       this.notifications.listUnread(userId),
       this.notifications.unreadCount(userId),
@@ -227,10 +235,24 @@ export class DashboardUseCases {
     tasks: TaskRecord[],
     budget: number | null,
     monthSpent: number,
-    now: Date
+    now: Date,
+    spentLast7: number,
+    completedLast7: number
   ): Promise<void> {
     const today = dayKeyOf(now);
     const items: { type: string; title: string; body: string; refKey: string }[] = [];
+
+    // Weekly summary — Egyptian week starts Saturday (BRD §28).
+    if (now.getUTCDay() === 6) {
+      const dayOfYear = Math.floor((now.getTime() - Date.UTC(now.getUTCFullYear(), 0, 0)) / 86_400_000);
+      const weekKey = `${now.getUTCFullYear()}-W${Math.floor(dayOfYear / 7)}`;
+      items.push({
+        type: 'WEEKLY_SUMMARY',
+        title: 'ملخصك الأسبوعي 📊',
+        body: `السبت الجديد! الأسبوع اللي فات: خلصت ${completedLast7} ${completedLast7 === 1 ? 'مهمة' : 'مهام'} وصرفت حوالي ${Math.round(spentLast7)} جنيه. يلا نبدأ أسبوع منظم — تحب نظّملك يومك؟`,
+        refKey: `weekly-${weekKey}`,
+      });
+    }
 
     const open = tasks.filter((t) => t.status === 'TODO' || t.status === 'IN_PROGRESS');
     const overdue = open.filter((t) => t.deadline && t.deadline < now);
@@ -277,4 +299,38 @@ export class DashboardUseCases {
       );
     }
   }
+}
+
+/** Personalization snapshot from real completion history (BRD §17). */
+function buildPersonalizationSnapshot(tasks: TaskRecord[], now: Date): {
+  completedByHour: number[];
+  completedLast7: number;
+  completedLast14: number;
+  chronicOverdue: { id: string; title: string; daysLate: number }[];
+} {
+  const completedByHour = new Array<number>(24).fill(0);
+  for (const task of tasks) {
+    if (!task.completedAt) continue;
+    if (now.getTime() - task.completedAt.getTime() > 30 * 86_400_000) continue;
+    completedByHour[task.completedAt.getUTCHours()] += 1;
+  }
+  const completedLast7 = tasks.filter(
+    (t) => t.completedAt && now.getTime() - t.completedAt.getTime() <= 7 * 86_400_000
+  ).length;
+  const completedLast14 = tasks.filter(
+    (t) => t.completedAt && now.getTime() - t.completedAt.getTime() <= 14 * 86_400_000
+  ).length;
+  const chronicOverdue = tasks
+    .filter(
+      (t) =>
+        (t.status === 'TODO' || t.status === 'IN_PROGRESS') &&
+        t.deadline &&
+        now.getTime() - t.deadline.getTime() > 2 * 86_400_000
+    )
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      daysLate: Math.max(1, Math.floor((now.getTime() - (t.deadline?.getTime() ?? now.getTime())) / 86_400_000)),
+    }));
+  return { completedByHour, completedLast7, completedLast14, chronicOverdue };
 }

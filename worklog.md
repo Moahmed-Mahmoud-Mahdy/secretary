@@ -141,3 +141,36 @@ Work Log:
 Stage Summary:
 - Handover notes: demo account demo@sekretir.app/123456 (re-seed `bun scripts/seed-demo.ts`); wall-clock Cairo convention (UTC getters on client); AI contract in Task 4 section; key files: src/core/** (onion layers), src/lib/sekretir/** + src/components/sekretir/** (frontend).
 - Suggested next steps: weekly summary notification (Saturday), TTS voice replies, personalization stats (avg task duration per category), subtask AI breakdown ("عايز أعمل موقع تخرج" → task list), recurring task expansion in calendar month view, PWA manifest.
+
+---
+Task ID: cron-20261004-1
+Agent: main (Z.ai Code) — webDevReview round 1
+Task: QA + new features (BRD §11/§17/§28/§43) + styling polish
+
+## Current project status
+- Stable: MVP fully working from previous rounds (auth, AI chat with intents, tasks/projects/calendar/finance, planning, insights, notifications). Dev server healthy (200), no new runtime errors in dev.log (the 2 old `filter` errors in logs are historical, fixed earlier). lint + tsc clean.
+
+## This round: completed modifications & verification
+1. **AI Project Breakdown (BRD §11)** — NEW action `CREATE_PROJECT_WITH_TASKS` + intent `SUGGEST_PLAN`:
+   - "عايز أعمل موقع لتطبيق توصيل أكل" → created project + 8 logical ordered tasks (verified live, reply lists all tasks).
+   - NEW action `ADD_SUBTASKS`: "قسمل مهمة X لخطوات" → 3-6 subtasks under matched parent task.
+   - Prompt rules 12-13 added; enums extended; ai-chat-use-cases handles both (auto-execute, low-risk creates).
+2. **Personalization insights (BRD §17)** — new `personalizationInsights()` domain service over REAL history:
+   - Peak productivity hours ("لاحظت إنك بتنجز أكتر بين X وY الصبح") from completedAt histogram (30d, needs ≥5 completions).
+   - Daily completion average (14d), chronic procrastination warning (tasks >2 days late → suggests breakdown), streak praise (≥5 completions in 7d, no chronic overdue).
+   - Wired into dashboard via `buildPersonalizationSnapshot()`; verified "بتخلص في المتوسط 0.1 مهام في اليوم" renders from demo data.
+3. **Weekly summary (BRD §28)** — Saturday-only notification (Egyptian week start): completions + spend of last 7 days, deduped by refKey `weekly-{year}-W{week}`.
+4. **TTS voice replies (BRD §43)** — سكرتير يتكلم:
+   - New port `ITextToSpeechService` + `ZaiTextToSpeechService` (voice tongtong, wav, 1000-char cap) + `POST /api/ai/tts`.
+   - Speaker 🔊 button on every assistant message (top corner): play/stop toggle with loading + pulse states, one-audio-at-a-time via audioRef. Verified in browser: `POST /api/ai/tts 200 in 2.8s` (712KB wav).
+5. **Styling polish [mandatory]**:
+   - New `FadeIn` component (framer-motion) — staggered entrance on home greeting/AI input/cards.
+   - Hover lift (`hover:shadow-md hover:-translate-y-0.5 transition-all`) applied to all cards in tasks/projects/finance/calendar/home views.
+   - Example chips updated to showcase breakdown («عايز أعمل موقع تخرج»).
+   - PWA: public/manifest.json (RTL, ar, amber theme) + metadata manifest link.
+   - Fixed greeting/suggestion overlap on desktop (-mt-3 → mt-1) — verified clean.
+
+## Unresolved issues / risks & next priorities
+- TTS voice (tongtong) is Chinese-optimized; Arabic pronunciation may sound accented — acceptable for MVP, consider testing other voices (xiaochen/kazi) later.
+- Voice-record (ASR) path still untested end-to-end with a real mic (headless limitation); transcribe endpoint shape verified, WAV encoding handled client-side.
+- Next round suggestions: personalization — average estimated vs actual duration per task category (BRD §17 "المهام التي تستغرق وقتًا أطول من المتوقع"); month navigation in finance view; transfers (BRD §19); repeat/recurring expansion test in calendar week view; dark mode consideration.

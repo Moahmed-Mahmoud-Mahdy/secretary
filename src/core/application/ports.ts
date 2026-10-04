@@ -59,3 +59,7 @@ export interface IAiAssistantService {
 export interface ISpeechToTextService {
   transcribe(audioBase64: string): Promise<string>;
 }
+
+export interface ITextToSpeechService {
+  synthesize(text: string): Promise<{ audioBase64: string; mimeType: string }>;
+}

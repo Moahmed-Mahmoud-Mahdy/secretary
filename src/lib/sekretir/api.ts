@@ -300,6 +300,7 @@ export const endpoints = {
       { pending } as Record<string, unknown>
     ),
   transcribe: (audio: string) => api.post<{ text: string }>('/api/ai/transcribe', { audio }),
+  speak: (text: string) => api.post<{ audio: string; mimeType: string }>('/api/ai/tts', { text }),
 
   dashboard: () => api.get<DashboardDTO>('/api/dashboard'),
 

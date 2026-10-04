@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Check, X } from 'lucide-react';
+import { Bot, Check, Loader2, Square, Volume2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { AiInput } from '@/components/sekretir/ai-input';
@@ -68,6 +68,8 @@ export function AssistantView({
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const loadedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -185,6 +187,34 @@ export function AssistantView({
     toast('تمام، مأثرتش حاجة 👌');
   }
 
+  async function stopSpeaking() {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setSpeakingId(null);
+  }
+
+  /** سكرتير يتكلم — TTS voice replies (BRD §43). */
+  async function speakMessage(msgId: string, text: string) {
+    if (speakingId === msgId) {
+      await stopSpeaking();
+      return;
+    }
+    await stopSpeaking();
+    setSpeakingId(msgId);
+    try {
+      const { audio, mimeType } = await endpoints.speak(text);
+      const element = new Audio(`data:${mimeType};base64,${audio}`);
+      audioRef.current = element;
+      element.onended = () => {
+        if (audioRef.current === element) setSpeakingId(null);
+      };
+      await element.play();
+    } catch (e) {
+      setSpeakingId(null);
+      toast.error(apiErrorMessage(e) || 'معرفتش أشغّل الصوت 😅');
+    }
+  }
+
   return (
     <div className="flex flex-col h-[calc(100dvh-3.5rem-env(safe-area-inset-bottom))] md:h-[calc(100dvh-3.5rem-3rem)] max-h-full">
       <div
@@ -204,8 +234,25 @@ export function AssistantView({
             ) : (
               <div className="flex justify-end gap-2 items-end">
                 <div className="max-w-[88%] sm:max-w-[75%] space-y-2">
-                  <div className="whitespace-pre-wrap rounded-2xl rounded-se-sm bg-white border border-stone-200 px-4 py-2.5 text-sm text-stone-800 shadow-sm">
+                  <div className="whitespace-pre-wrap rounded-2xl rounded-se-sm bg-white border border-stone-200 px-4 py-2.5 text-sm text-stone-800 shadow-sm group relative">
                     {m.text}
+                    <button
+                      type="button"
+                      aria-label={speakingId === m.id ? 'وقف الصوت' : 'اسمع الرد بصوت سكرتير'}
+                      disabled={speakingId === m.id && !audioRef.current}
+                      onClick={() => speakMessage(m.id, m.text)}
+                      className="absolute -top-2 -start-2 size-6 rounded-full bg-white border border-stone-200 shadow-sm flex items-center justify-center text-amber-600 hover:bg-amber-50 hover:border-amber-300 transition-colors"
+                    >
+                      {speakingId === m.id ? (
+                        audioRef.current ? (
+                          <Square className="size-3 animate-pulse" />
+                        ) : (
+                          <Loader2 className="size-3 animate-spin" />
+                        )
+                      ) : (
+                        <Volume2 className="size-3" />
+                      )}
+                    </button>
                   </div>
 
                   {m.executed?.map((a, i) => (

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AiInput } from '@/components/sekretir/ai-input';
+import { FadeIn } from '@/components/sekretir/fade-in';
 import { SekretirProgress } from '@/components/sekretir/progress';
 import {
   apiErrorMessage,
@@ -94,6 +95,7 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
   return (
     <div className="space-y-5">
       {/* Greeting */}
+      <FadeIn>
       <div className="flex items-center gap-2">
         {isMorning ? (
           <Sun className="size-6 text-amber-500" aria-hidden />
@@ -105,11 +107,12 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
         </h1>
       </div>
       {data?.suggestion ? (
-        <p className="text-sm text-stone-500 -mt-3">💡 {data.suggestion}</p>
+        <p className="text-sm text-stone-500 mt-1">💡 {data.suggestion}</p>
       ) : null}
+      </FadeIn>
 
       {/* AI input */}
-      <div className="relative">
+      <FadeIn delay={0.05} className="relative">
         <AiInput
           value={input}
           onChange={setInput}
@@ -123,14 +126,15 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
           </div>
         ) : null}
         <p className="text-xs text-stone-400 mt-2 px-2">
-          جرب: «دفعت 50 جنيه مواصلات» • «بكرة عندي محاضرة 10» • «نظملي يومي»
+          جرب: «دفعت 50 جنيه مواصلات» • «عايز أعمل موقع تخرج» • «نظملي يومي»
         </p>
-      </div>
+      </FadeIn>
 
       {/* Grid */}
       <div className="grid md:grid-cols-2 gap-4 items-start">
         {/* Schedule timeline */}
-        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+        <FadeIn delay={0.1}>
+        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-bold text-stone-800 flex items-center gap-2">
@@ -198,11 +202,12 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
             )}
           </CardContent>
         </Card>
+        </FadeIn>
 
         {/* Right column */}
-        <div className="space-y-4">
+        <FadeIn delay={0.15} className="space-y-4">
           {/* Task summary */}
-          <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+          <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
             <CardContent className="p-4 sm:p-5">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold text-stone-800">مهامك</h2>
@@ -250,7 +255,7 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
           </Card>
 
           {/* Finance mini card */}
-          <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+          <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
             <CardContent className="p-4 sm:p-5">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold text-stone-800 flex items-center gap-2">
@@ -301,7 +306,7 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
 
           {/* Insights */}
           {data?.insights && data.insights.length > 0 ? (
-            <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm">
+            <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
               <CardContent className="p-4 sm:p-5">
                 <h2 className="font-bold text-stone-800 flex items-center gap-2 mb-3">
                   <Sparkles className="size-5 text-amber-600" />
@@ -352,7 +357,7 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
               سجلت مصروف
             </Button>
           </div>
-        </div>
+        </FadeIn>
       </div>
     </div>
   );

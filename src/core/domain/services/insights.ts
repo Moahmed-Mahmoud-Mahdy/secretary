@@ -177,3 +177,73 @@ export function calendarInsights(s: CalendarSnapshot): InsightDTO[] {
   }
   return out;
 }
+
+// ============================================================
+// Personalization (BRD §17) — learned patterns from REAL
+// completion history only (no invention).
+// ============================================================
+
+export interface PersonalizationSnapshot {
+  completedByHour: number[]; // 24 buckets, completions by hour-of-day (last 30 days)
+  completedLast7: number;
+  completedLast14: number;
+  chronicOverdue: { id: string; title: string; daysLate: number }[]; // open tasks > 2 days late
+}
+
+function hourRangeArabic(hour: number): string {
+  const start = hour;
+  const end = (hour + 2) % 24;
+  const dayPart = start < 12 ? 'الصبح' : start < 17 ? 'الضهر' : start < 21 ? 'العصر بالليل' : 'بالليل';
+  return `بين ${start} و${end} ${dayPart}`;
+}
+
+export function personalizationInsights(s: PersonalizationSnapshot): InsightDTO[] {
+  const out: InsightDTO[] = [];
+
+  const totalCompletions = s.completedByHour.reduce((a, b) => a + b, 0);
+  if (totalCompletions >= 5) {
+    let peak = 0;
+    for (let h = 1; h < 24; h += 1) {
+      if (s.completedByHour[h] > s.completedByHour[peak]) peak = h;
+    }
+    out.push(
+      makeInsight(
+        'INSIGHT',
+        'PLANNING',
+        '🧠',
+        `لاحظت إنك بتنجز أكتر ${hourRangeArabic(peak)} — بحاول أحط المهام المهمة لك هناك.`
+      )
+    );
+  }
+
+  if (s.completedLast14 > 0) {
+    const avg = Math.round((s.completedLast14 / 14) * 10) / 10;
+    out.push(
+      makeInsight(
+        'INSIGHT',
+        'TASKS',
+        '📈',
+        `بتخلص في المتوسط ${avg} ${avg === 1 ? 'مهمة' : 'مهام'} في اليوم (آخر أسبوعين).`
+      )
+    );
+  }
+
+  if (s.chronicOverdue.length >= 2) {
+    out.push(
+      makeInsight(
+        'WARNING',
+        'TASKS',
+        '🐢',
+        `في ${s.chronicOverdue.length} مهام بتتأجل باستمرار (منها «${s.chronicOverdue[0].title}» متأخرة ${s.chronicOverdue[0].daysLate} يوم). تحب نقسمها لخطوات أصغر؟`
+      )
+    );
+  }
+
+  if (s.completedLast7 >= 5 && s.chronicOverdue.length === 0) {
+    out.push(
+      makeInsight('INSIGHT', 'TASKS', '🔥', `أسبوع نار — خلصت ${s.completedLast7} مهام آخر 7 أيام من غير ما حاجة تتأخر!`)
+    );
+  }
+
+  return out;
+}

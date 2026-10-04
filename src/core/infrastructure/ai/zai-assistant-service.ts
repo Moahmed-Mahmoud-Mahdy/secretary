@@ -73,7 +73,7 @@ function buildInterpretSystemPrompt(context: InterpretInput['context']): string 
 {"intent":"<INTENT>","actions":[<ACTION>،...]}
 
 INTENT يكون واحد من:
-CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, UNKNOWN
+CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, SUGGEST_PLAN, UNKNOWN
 
 أنواع الـ Actions (التزم بالحقول دي بالظبط):
 {"type":"CREATE_TASK","title":"...","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":null|عدد الدقايق,"deadline":null|"YYYY-MM-DDTHH:mm:ss","projectName":null|"اسم المشروع","description":null|"وصف"}
@@ -86,6 +86,8 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 {"type":"DELETE_TASK","taskName":"اسم المهمة"}
 {"type":"UPDATE_TASK","taskName":"اسم المهمة","fields":{"title"?:"...","priority"?:"...","deadline"?:"YYYY-MM-DDTHH:mm:ss","estimatedMinutes"?:عدد,"description"?:"..."}}
 {"type":"DELETE_EVENT","eventName":"اسم الحدث"}
+{"type":"CREATE_PROJECT_WITH_TASKS","name":"اسم المشروع","description":null,"deadline":null|"YYYY-MM-DD","tasks":[{"title":"خطوة مختصرة","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":عدد|null}]}
+{"type":"ADD_SUBTASKS","taskName":"اسم المهمة الموجودة","subtasks":["خطوة 1","خطوة 2","خطوة 3"]}
 {"type":"PLAN_DAY","date":null|"YYYY-MM-DD"}
 {"type":"QUERY","queryType":"FINANCE_SUMMARY"|"BUDGET_STATUS"|"TODAY_SCHEDULE"|"TASKS_STATUS"|"GENERAL","question":"سؤال المستخدم زي ما قاله"}
 {"type":"CHITCHAT","message":"..."}
@@ -102,7 +104,9 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 9. مهام المستخدم المفتوحة: ${context.openTasks.length > 0 ? context.openTasks.map((t) => t.title).join('، ') : 'مفيش'}. لو قال "خلصت/خلص/عملت" حاجة منهم → COMPLETE_TASK باسمها.
 10. تصنيف المصاريف: FOOD=أكل ومقاهي، TRANSPORT=مواصلات وأوبر وبنزين، EDUCATION=مذاكرة وكتب ودورات، PROJECTS=مصاريف مشاريعه، BILLS=كهرباء ومية وانترنت، SHOPPING=ملابس وحاجات، ENTERTAINMENT=خروجات وسينما وألعاب، OTHER=أي حاجة تانية. الـ description لازم يكون اسم البند بس مختصر (مثال: "مواصلات"، "فاتورة الكهربا"، "غدا") — ممنوع تحط الجملة كلها بتاعة المستخدم فيه.
 11. "خطة" أو "نظّم يومي" أو "رتب مهامي" → PLAN_DAY.
-12. ممنوع تطلع أي حاجة غير الـ JSON.`;
+12. لو المستخدم بيقول هدف كبير أو مشروع من غير تفاصيل (مثال: "عايز أعمل موقع تخرج"، "عايز أخلص مشروع الـPOS"، "عايز أتعلم برمجة") → intent=SUGGEST_PLAN و actions فيه عنصر واحد CREATE_PROJECT_WITH_TASKS: اسم المشروع + 4-8 مهام منطقية مترتبة بترتيب التنفيذ، كل مهمة بمدة تقديرية معقولة. لو الهدف مطابق لاسم مشروع من مشاريع المستخدم استخدم نفس الاسم وجزّئه لمهام جديدة جواه. ممنوع تختلق deadline.
+13. لو المستخدم طلب تقسيم مهمة موجودة لخطوات (مثال: "قسمل مهمة X لخطوات"، "ضيف خطوات تحت X") → action واحد ADD_SUBTASKS باسم المهمة و3-6 خطوات.
+14. ممنوع تطلع أي حاجة غير الـ JSON.`;
 }
 
 export class ZaiAssistantService implements IAiAssistantService {
