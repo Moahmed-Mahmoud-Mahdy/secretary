@@ -1,19 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Bell, CheckCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { apiErrorMessage, endpoints, type NotificationDTO } from '@/lib/sekretir/api';
 import { cn } from '@/lib/utils';
-import { fmtTime, relativeDay } from '@/lib/sekretir/date-utils';
+import { fmtDayMonth, fmtTime, isoDayKey, todayKey } from '@/lib/sekretir/date-utils';
 
 const NOTIF_ICON: Record<string, string> = {
   OVERDUE_TASK: '⏰',
   DEADLINE_WARNING: '❗',
   BUDGET_ALERT: '💰',
+  BUDGET_REMINDER: '🪙',
   EXPECTED_EXPENSE: '💸',
   EVENT_REMINDER: '📅',
   TASK_REMINDER: '✅',
@@ -23,8 +24,46 @@ const NOTIF_ICON: Record<string, string> = {
   HABIT_REMINDER: '🔥',
 };
 
+/** Soft per-type chip tint (auto-remapped by the .dark overrides). */
+const NOTIF_CHIP: Record<string, string> = {
+  OVERDUE_TASK: 'bg-rose-100 text-rose-700',
+  DEADLINE_WARNING: 'bg-rose-100 text-rose-700',
+  BUDGET_ALERT: 'bg-amber-100 text-amber-800',
+  BUDGET_REMINDER: 'bg-amber-100 text-amber-800',
+  EXPECTED_EXPENSE: 'bg-amber-100 text-amber-800',
+  EVENT_REMINDER: 'bg-emerald-100 text-emerald-800',
+  TASK_REMINDER: 'bg-emerald-100 text-emerald-800',
+  WEEKLY_SUMMARY: 'bg-stone-200 text-stone-700',
+  AI_SUGGESTION: 'bg-orange-100 text-orange-800',
+  REPLAN: 'bg-stone-200 text-stone-700',
+  HABIT_REMINDER: 'bg-orange-100 text-orange-800',
+};
+
 interface NotificationsBellProps {
   refreshKey: number;
+}
+
+interface NotifGroup {
+  label: string;
+  items: NotificationDTO[];
+}
+
+/** Group notifications into اليوم / امبارح / أقدم by Cairo wall-clock day. */
+function groupByDay(items: NotificationDTO[]): NotifGroup[] {
+  const today = todayKey();
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_399_000).toISOString().slice(0, 10);
+  const groups: NotifGroup[] = [
+    { label: 'النهارده', items: [] },
+    { label: 'امبارح', items: [] },
+    { label: 'أقدم', items: [] },
+  ];
+  for (const n of items) {
+    const day = isoDayKey(n.createdAt);
+    if (day === today) groups[0].items.push(n);
+    else if (day === yesterday) groups[1].items.push(n);
+    else groups[2].items.push(n);
+  }
+  return groups.filter((g) => g.items.length > 0);
 }
 
 export function NotificationsBell({ refreshKey }: NotificationsBellProps) {
@@ -46,6 +85,8 @@ export function NotificationsBell({ refreshKey }: NotificationsBellProps) {
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
+
+  const groups = useMemo(() => groupByDay(items), [items]);
 
   async function markAll() {
     try {
@@ -84,67 +125,104 @@ export function NotificationsBell({ refreshKey }: NotificationsBellProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="relative text-stone-600 hover:text-amber-700 hover:bg-amber-50"
+          className={cn(
+            'relative text-stone-600 hover:text-amber-700 hover:bg-amber-50 transition-transform',
+            unread > 0 && 'hover:scale-105'
+          )}
           aria-label={`التنبيهات${unread > 0 ? ` (${unread} جديد)` : ''}`}
         >
-          <Bell className="size-5" />
+          <Bell className={cn('size-5', unread > 0 && 'animate-[sekretir-swing_2.5s_ease-in-out_infinite]')} />
           {unread > 0 ? (
-            <span className="absolute -top-0.5 -left-0.5 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center">
+            <span className="absolute -top-0.5 -left-0.5 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
               {unread > 9 ? '9+' : unread}
             </span>
           ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={8} className="w-80 p-0 rounded-2xl">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100">
-          <h3 className="font-bold text-sm text-stone-800">التنبيهات</h3>
-          {unread > 0 ? (
+      <PopoverContent align="end" sideOffset={8} className="w-80 p-0 rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-l from-amber-50/80 to-transparent border-b border-stone-100">
+          <h3 className="font-bold text-sm text-stone-800 flex items-center gap-2">
+            <span className="size-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center" aria-hidden>
+              <Bell className="size-3.5" />
+            </span>
+            التنبيهات
+            {unread > 0 ? (
+              <span className="rounded-full bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 leading-none tabular-nums">
+                {unread} جديد
+              </span>
+            ) : null}
+          </h3>
+          {items.length > 0 ? (
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 text-xs text-amber-700 hover:text-amber-800 hover:bg-amber-50"
+              disabled={unread === 0}
+              className="h-7 text-xs text-amber-700 hover:text-amber-800 hover:bg-amber-50 disabled:opacity-40 disabled:pointer-events-auto"
               onClick={markAll}
             >
+              <CheckCheck className="size-3.5" />
               علّم الكل مقروء
             </Button>
           ) : null}
         </div>
-        <ScrollArea className="max-h-80">
+        <ScrollArea className="max-h-96">
           {loading ? (
             <div className="px-4 py-8 text-center text-sm text-stone-400">بنجيب التنبيهات...</div>
           ) : items.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-stone-400">
-              مفيش تنبيهات لسه — كل حاجة تمام ✨
+            <div className="px-4 py-10 text-center">
+              <div className="mx-auto size-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-2xl mb-2" aria-hidden>
+                ✨
+              </div>
+              <p className="text-sm font-bold text-stone-700">مفيش تنبيهات — كل حاجة تمام!</p>
+              <p className="text-xs text-stone-400 mt-1">هنبعتلك لو حاجة مهمة حصلت</p>
             </div>
           ) : (
-            <ul className="divide-y divide-stone-50">
-              {items.map((n) => (
-                <li key={n.id}>
-                  <button
-                    type="button"
-                    onClick={() => markOne(n)}
-                    className={cn(
-                      'w-full text-right px-4 py-3 flex gap-3 items-start hover:bg-stone-50 transition-colors',
-                      !n.isRead && 'bg-amber-50/60'
-                    )}
-                  >
-                    <span className="text-lg leading-none mt-0.5 shrink-0" aria-hidden>
-                      {NOTIF_ICON[n.type] ?? '🔔'}
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-semibold text-stone-800">{n.title}</span>
-                      <span className="block text-xs text-stone-500 mt-0.5">{n.body}</span>
-                      <span className="block text-[10px] text-stone-400 mt-1">
-                        {relativeDay(n.createdAt)} {fmtTime(n.createdAt)}
-                      </span>
-                    </span>
-                    {!n.isRead ? (
-                      <span className="size-2 rounded-full bg-amber-500 mt-1.5 shrink-0" aria-hidden />
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            groups.map((group) => (
+              <section key={group.label} aria-label={group.label}>
+                <p className="sticky top-0 z-10 backdrop-blur bg-white/85 px-4 py-1.5 text-[10px] font-bold text-stone-400 border-b border-stone-50">
+                  {group.label}
+                  <span className="float-left tabular-nums">{group.items.length}</span>
+                </p>
+                <ul className="divide-y divide-stone-50">
+                  {group.items.map((n) => (
+                    <li key={n.id}>
+                      <button
+                        type="button"
+                        onClick={() => markOne(n)}
+                        className={cn(
+                          'w-full text-right px-4 py-3 flex gap-3 items-start hover:bg-stone-50 active:bg-amber-50 transition-colors group',
+                          !n.isRead && 'bg-amber-50/60'
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'size-8 rounded-xl flex items-center justify-center text-base leading-none shrink-0 transition-transform group-hover:scale-110',
+                            NOTIF_CHIP[n.type] ?? 'bg-stone-100 text-stone-600'
+                          )}
+                          aria-hidden
+                        >
+                          {NOTIF_ICON[n.type] ?? '🔔'}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-semibold text-stone-800">{n.title}</span>
+                          <span className="block text-xs text-stone-500 mt-0.5 leading-relaxed">{n.body}</span>
+                          <span className="block text-[10px] text-stone-400 mt-1 tabular-nums">
+                            {group.label === 'النهارده'
+                              ? `النهارده ${fmtTime(n.createdAt)}`
+                              : group.label === 'امبارح'
+                                ? `امبارح ${fmtTime(n.createdAt)}`
+                                : `${fmtDayMonth(n.createdAt)} ${fmtTime(n.createdAt)}`}
+                          </span>
+                        </span>
+                        {!n.isRead ? (
+                          <span className="size-2 rounded-full bg-amber-500 mt-1.5 shrink-0 animate-pulse" aria-hidden />
+                        ) : null}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))
           )}
         </ScrollArea>
       </PopoverContent>

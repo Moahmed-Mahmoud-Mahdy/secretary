@@ -53,6 +53,44 @@ export default function Page() {
     }
   }, []);
 
+  // Keyboard shortcuts (desktop power users):
+  // "/" → jump to المساعد and focus the chat box.
+  // 1..6 → switch between the six views.
+  // Ignored while typing in a field or when a dialog is open.
+  useEffect(() => {
+    if (!user) return;
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Only block on *modal* dialogs (Radix Dialog/AlertDialog) — non-modal
+      // popovers (bell, selects) also carry role="dialog" but shouldn't trap us.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+
+      if (e.key === '/') {
+        e.preventDefault();
+        setView('assistant');
+        window.setTimeout(() => {
+          document.querySelector<HTMLInputElement>('[data-sekretir-chat-input]')?.focus();
+        }, 90);
+        return;
+      }
+
+      const order: SekretirView[] = ['home', 'assistant', 'tasks', 'projects', 'calendar', 'finance'];
+      const idx = Number(e.key);
+      if (idx >= 1 && idx <= order.length) {
+        setView(order[idx - 1]);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [user]);
+
   if (booting) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-stone-50 gap-4">

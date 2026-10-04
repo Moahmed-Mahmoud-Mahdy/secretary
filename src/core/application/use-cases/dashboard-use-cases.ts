@@ -79,7 +79,7 @@ export class DashboardUseCases {
     const dayStart = startOfDay(now);
     const dayEnd = endOfDay(now);
 
-    const [taskRecords, eventRecords, expenses, incomes, budget, slots, allExpenses] = await Promise.all([
+    const [taskRecords, eventRecords, expenses, incomes, budget, slots, allExpenses, prevBudget] = await Promise.all([
       this.tasks.listAll(userId),
       this.events.listAll(userId),
       this.finance.listExpenses(userId, { from: addDays(dayStart, -14), to: now }),
@@ -87,6 +87,7 @@ export class DashboardUseCases {
       this.finance.getBudgetAmount(userId, now.getUTCMonth() + 1, now.getUTCFullYear()),
       this.plans.listSlotsForDay(userId, dayStart, dayEnd),
       this.finance.listExpenses(userId),
+      this.finance.getBudgetAmount(userId, now.getUTCMonth() === 0 ? 12 : now.getUTCMonth(), now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear()),
     ]);
 
     // ---------- schedule ----------
@@ -222,7 +223,8 @@ export class DashboardUseCases {
       spentLast7,
       completedLast7,
       categoryLimits,
-      allExpenses.filter((e) => e.isRecurring && e.nextDueAt)
+      allExpenses.filter((e) => e.isRecurring && e.nextDueAt),
+      prevBudget
     );
     const [unread, unreadCount] = await Promise.all([
       this.notifications.listUnread(userId),
@@ -269,10 +271,23 @@ export class DashboardUseCases {
     spentLast7: number,
     completedLast7: number,
     categoryLimits: { category: string; limit: number; spent: number; pct: number; over: boolean }[],
-    recurringExpenses: { id: string; description: string | null; category: string; amount: number; nextDueAt: Date | null }[]
+    recurringExpenses: { id: string; description: string | null; category: string; amount: number; nextDueAt: Date | null }[],
+    prevMonthBudget: number | null
   ): Promise<void> {
     const today = dayKeyOf(now);
     const items: { type: string; title: string; body: string; refKey: string }[] = [];
+
+    // Month rollover (BRD §19/§28): the new month started WITHOUT a budget
+    // but the user had one last month → nudge to copy it, deduped per month.
+    if ((!budget || budget <= 0) && prevMonthBudget && prevMonthBudget > 0) {
+      const monthKey = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+      items.push({
+        type: 'BUDGET_REMINDER',
+        title: 'الشهر ده لسه من غير ميزانية 💰',
+        body: `ميزانية الشهر اللي فات كانت ${Math.round(prevMonthBudget)} ج — ظبّطها للشهر ده من صفحة الفلوس، أو انسخها بضغطة واحدة.`,
+        refKey: `budgetmissed-${monthKey}`,
+      });
+    }
 
     // Weekly summary — Egyptian week starts Saturday (BRD §28).
     if (now.getUTCDay() === 6) {

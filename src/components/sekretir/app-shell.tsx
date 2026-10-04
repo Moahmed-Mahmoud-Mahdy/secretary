@@ -118,6 +118,20 @@ export function AppShell({ user, view, onNavigate, onLogout, refreshKey, childre
       <footer className="mt-auto hidden md:block border-t border-stone-200 bg-white">
         <p className="py-4 text-center text-sm text-stone-400">
           سكرتير — مساعدك الشخصي الذكي 🤖
+          <span className="mx-2 text-stone-200" aria-hidden>
+            |
+          </span>
+          <kbd className="rounded-md border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-bold text-stone-500 shadow-sm">
+            /
+          </kbd>{' '}
+          للمساعد السريع
+          <span className="mx-2 text-stone-200" aria-hidden>
+            |
+          </span>
+          <kbd className="rounded-md border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-bold text-stone-500 shadow-sm">
+            1-6
+          </kbd>{' '}
+          للتنقل
         </p>
       </footer>
 

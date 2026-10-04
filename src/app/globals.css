@@ -125,6 +125,7 @@ html.dark {
  */
 .dark .bg-white { background-color: #1c1917; }
 .dark .bg-white\/60 { background-color: rgb(12 10 9 / 0.6); }
+.dark .bg-white\/85 { background-color: rgb(28 25 23 / 0.88); }
 
 .dark .bg-stone-50 { background-color: #0c0a09; }
 .dark .bg-stone-50\/60 { background-color: rgb(28 25 23 / 0.6); }
@@ -308,6 +309,16 @@ html.dark {
 }
 .sekretir-msg {
   animation: sekretir-pop 0.18s ease-out;
+}
+
+/* Bell ring wobble when there are unread notifications */
+@keyframes sekretir-swing {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(12deg); }
+  20% { transform: rotate(-10deg); }
+  30% { transform: rotate(7deg); }
+  40% { transform: rotate(-5deg); }
+  50% { transform: rotate(0deg); }
 }
 
 /* Bottom safe-area for mobile tab bar */

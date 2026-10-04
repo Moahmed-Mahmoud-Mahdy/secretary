@@ -1,0 +1,1112 @@
+     1→'use client';
+     2→
+     3→import { useCallback, useEffect, useState } from 'react';
+     4→import {
+     5→  CalendarDays,
+     6→  CalendarPlus,
+     7→  ChevronLeft,
+     8→  ChevronRight,
+     9→  Flame,
+    10→  Loader2,
+    11→  Repeat,
+    12→  Trash2,
+    13→  Wallet,
+    14→} from 'lucide-react';
+    15→import { toast } from 'sonner';
+    16→import confetti from 'canvas-confetti';
+    17→import { Button } from '@/components/ui/button';
+    18→import { Card, CardContent } from '@/components/ui/card';
+    19→import { Checkbox } from '@/components/ui/checkbox';
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogDescription,
+    24→  DialogFooter,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→} from '@/components/ui/dialog';
+    28→import { Input } from '@/components/ui/input';
+    29→import { Label } from '@/components/ui/label';
+    30→import {
+    31→  Select,
+    32→  SelectContent,
+    33→  SelectItem,
+    34→  SelectTrigger,
+    35→  SelectValue,
+    36→} from '@/components/ui/select';
+    37→import { Skeleton } from '@/components/ui/skeleton';
+    38→import {
+    39→  apiErrorMessage,
+    40→  endpoints,
+    41→  isAuthError,
+    42→  type DayPlanDTO,
+    43→  type EventDTO,
+    44→  type FinanceSummaryDTO,
+    45→  type HabitDTO,
+    46→  type OccurrenceDTO,
+    47→  type PlanSlotDTO,
+    48→  type Recurrence,
+    49→  type WeekPlanDTO,
+    50→} from '@/lib/sekretir/api';
+    51→import { CATEGORY_META, RECURRENCE_LABELS, RECURRENCE_OPTIONS, fmtMoney, streakCountLabel } from '@/lib/sekretir/constants';
+    52→import {
+    53→  addDaysKey,
+    54→  fmtTime,
+    55→  keyDayNumber,
+    56→  relativeDay,
+    57→  relativeDayFromKey,
+    58→  todayKey,
+    59→  weekdayInitial,
+    60→  weekdayName,
+    61→} from '@/lib/sekretir/date-utils';
+    62→import { FadeIn } from '@/components/sekretir/fade-in';
+    63→import { cn } from '@/lib/utils';
+    64→
+    65→/** Client-side occurrence expansion for events on a given day (wall-clock keys). */
+    66→function eventOccursOn(ev: EventDTO, dayKey: string): boolean {
+    67→  const startDay = ev.startAt.slice(0, 10);
+    68→  if (dayKey < startDay) return false;
+    69→  if (!ev.recurrence) return dayKey === startDay;
+    70→  const dayMs = Date.UTC(
+    71→    Number(dayKey.slice(0, 4)),
+    72→    Number(dayKey.slice(5, 7)) - 1,
+    73→    Number(dayKey.slice(8, 10))
+    74→  );
+    75→  const startMs = Date.UTC(
+    76→    Number(startDay.slice(0, 4)),
+    77→    Number(startDay.slice(5, 7)) - 1,
+    78→    Number(startDay.slice(8, 10))
+    79→  );
+    80→  if (ev.recurrence === 'DAILY') return dayMs >= startMs;
+    81→  if (ev.recurrence === 'WEEKLY') {
+    82→    const DAY = 86_400_000;
+    83→    return (dayMs - startMs) % (7 * DAY) === 0;
+    84→  }
+    85→  if (ev.recurrence === 'MONTHLY') return dayKey.slice(8, 10) === startDay.slice(8, 10);
+    86→  return dayKey === startDay;
+    87→}
+    88→
+    89→function eventToOccurrence(ev: EventDTO, dayKey: string): OccurrenceDTO {
+    90→  return {
+    91→    key: `event-${ev.id}-${dayKey}`,
+    92→    kind: 'EVENT',
+    93→    refId: ev.id,
+    94→    eventId: ev.id,
+    95→    title: ev.title,
+    96→    startAt: ev.startAt,
+    97→    endAt: ev.endAt,
+    98→    eventType: ev.eventType,
+    99→    isRecurring: Boolean(ev.recurrence),
+   100→  };
+   101→}
+   102→
+   103→function slotToOccurrence(slot: PlanSlotDTO): OccurrenceDTO {
+   104→  return {
+   105→    key: `slot-${slot.id}`,
+   106→    kind: 'PLANNED_TASK',
+   107→    refId: slot.id,
+   108→    taskId: slot.taskId,
+   109→    title: slot.taskTitle,
+   110→    startAt: slot.startAt,
+   111→    endAt: slot.endAt,
+   112→    status: slot.status,
+   113→    priority: slot.priority,
+   114→    taskIsTracking: slot.taskIsTracking,
+   115→    taskTrackingStartedAt: slot.taskTrackingStartedAt,
+   116→  };
+   117→}
+   118→
+   119→/** Sunday-anchored week start for a wall-clock day key (Egyptian week). */
+   120→function weekStartKey(key: string): string {
+   121→  const ms = Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)));
+   122→  const offset = new Date(ms).getUTCDay(); // 0=Sunday
+   123→  return addDaysKey(key, -offset);
+   124→}
+   125→
+   126→/**
+   127→ * Celebration burst on habit check-in (BRD §16) — amber/emerald palette,
+   128→ * particle count scales with the streak so milestones feel bigger.
+   129→ */
+   130→function celebrateStreak(streak: number): void {
+   131→  if (typeof window === 'undefined') return;
+   132→  const intensity = Math.min(5, 1 + Math.floor(streak / 3));
+   133→  const colors = ['#f59e0b', '#fbbf24', '#fde68a', '#10b981', '#6ee7b7'];
+   134→  const base = { colors, ticks: 120, gravity: 0.9, scalar: 0.9, zIndex: 9999 };
+   135→  void confetti({
+   136→    ...base,
+   137→    particleCount: 40 + intensity * 20,
+   138→    spread: 65 + intensity * 8,
+   139→    origin: { x: 0.25, y: 0.7 },
+   140→    angle: 60,
+   141→  });
+   142→  void confetti({
+   143→    ...base,
+   144→    particleCount: 40 + intensity * 20,
+   145→    spread: 65 + intensity * 8,
+   146→    origin: { x: 0.75, y: 0.7 },
+   147→    angle: 120,
+   148→  });
+   149→  if (streak >= 7) {
+   150→    // milestone week+: a golden rain from the top
+   151→    void confetti({ ...base, particleCount: 90, spread: 100, startVelocity: 35, origin: { x: 0.5, y: 0.15 } });
+   152→  }
+   153→}
+   154→
+   155→interface CalendarViewProps {
+   156→  refreshKey: number;
+   157→  onAuthError: () => void;
+   158→}
+   159→
+   160→export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
+   161→  const [selectedKey, setSelectedKey] = useState(todayKey());
+   162→  const [mode, setMode] = useState<'day' | 'week' | 'recurring'>('day');
+   163→  const [events, setEvents] = useState<EventDTO[]>([]);
+   164→  const [plan, setPlan] = useState<DayPlanDTO | null>(null);
+   165→  const [weekPlan, setWeekPlan] = useState<WeekPlanDTO | null>(null);
+   166→  const [loading, setLoading] = useState(true);
+   167→  const [slotBusy, setSlotBusy] = useState<string | null>(null);
+   168→
+   169→  // recurring hub (المتكرر)
+   170→  const [habits, setHabits] = useState<HabitDTO[]>([]);
+   171→  const [financeSummary, setFinanceSummary] = useState<FinanceSummaryDTO | null>(null);
+   172→  const [recurringLoading, setRecurringLoading] = useState(false);
+   173→  const [checkinBusy, setCheckinBusy] = useState<string | null>(null);
+   174→
+   175→  // event edit dialog
+   176→  const [editEvent, setEditEvent] = useState<EventDTO | null>(null);
+   177→  const [editForm, setEditForm] = useState({ title: '', startTime: '', endTime: '', notes: '' });
+   178→  const [savingEvent, setSavingEvent] = useState(false);
+   179→  const [deleteEvent, setDeleteEvent] = useState<EventDTO | null>(null);
+   180→  const [deleting, setDeleting] = useState(false);
+   181→
+   182→  // add event dialog
+   183→  const [addOpen, setAddOpen] = useState(false);
+   184→  const [addForm, setAddForm] = useState({ title: '', date: '', startTime: '', endTime: '', recurrence: 'none' });
+   185→  const [adding, setAdding] = useState(false);
+   186→
+   187→  const load = useCallback(async () => {
+   188→    setLoading(true);
+   189→    try {
+   190→      const [{ events: evs }, planData] = await Promise.all([
+   191→        endpoints.events(),
+   192→        endpoints.dayPlan(selectedKey),
+   193→      ]);
+   194→      setEvents(evs);
+   195→      setPlan(planData);
+   196→    } catch (e) {
+   197→      if (isAuthError(e)) {
+   198→        onAuthError();
+   199→        return;
+   200→      }
+   201→      toast.error(apiErrorMessage(e));
+   202→    } finally {
+   203→      setLoading(false);
+   204→    }
+   205→  }, [selectedKey, onAuthError]);
+   206→
+   207→  useEffect(() => {
+   208→    void load();
+   209→  }, [load, refreshKey]);
+   210→
+   211→  // Week grid data (slots per day) — only needed in week mode.
+   212→  const weekDaysKey = weekStartKey(selectedKey);
+   213→  useEffect(() => {
+   214→    if (mode !== 'week') return;
+   215→    let cancelled = false;
+   216→    endpoints
+   217→      .weekPlan(weekDaysKey)
+   218→      .then((data) => {
+   219→        if (!cancelled) setWeekPlan(data);
+   220→      })
+   221→      .catch((e) => {
+   222→        if (isAuthError(e)) {
+   223→          onAuthError();
+   224→          return;
+   225→        }
+   226→        toast.error(apiErrorMessage(e));
+   227→      });
+   228→    return () => {
+   229→      cancelled = true;
+   230→    };
+   231→  }, [mode, weekDaysKey, refreshKey, onAuthError, selectedKey]);
+   232→
+   233→  // Week strip: 7 days starting from week anchor
+   234→  const today = todayKey();
+   235→  const weekStart = weekStartKey(selectedKey);
+   236→  const weekDays = Array.from({ length: 7 }, (_, i) => addDaysKey(weekStart, i));
+   237→
+   238→  // Recurring hub data — only fetched in المتكرر mode.
+   239→  const loadRecurring = useCallback(async () => {
+   240→    setRecurringLoading(true);
+   241→    try {
+   242→      const [{ habits: hbs }, fin] = await Promise.all([endpoints.habits(), endpoints.financeSummary()]);
+   243→      setHabits(hbs);
+   244→      setFinanceSummary(fin);
+   245→    } catch (e) {
+   246→      if (isAuthError(e)) {
+   247→        onAuthError();
+   248→        return;
+   249→      }
+   250→      toast.error(apiErrorMessage(e));
+   251→    } finally {
+   252→      setRecurringLoading(false);
+   253→    }
+   254→  }, [onAuthError]);
+   255→
+   256→  useEffect(() => {
+   257→    if (mode === 'recurring') void loadRecurring();
+   258→  }, [mode, loadRecurring, refreshKey]);
+   259→
+   260→  const recurringEvents = events.filter((ev) => ev.recurrence !== null);
+   261→  // Upcoming recurring commitments from the finance summary (global, not month-scoped).
+   262→  const recurringExpenses = financeSummary?.upcomingRecurring ?? [];
+   263→  const recurringMonthlyTotal = recurringExpenses.reduce((s, x) => s + x.amount, 0);
+   264→
+   265→  /** First occurrence day (>= today) of a recurring event, searching 60 days ahead. */
+   266→  function nextEventDay(ev: EventDTO): string | null {
+   267→    for (let i = 0; i <= 60; i += 1) {
+   268→      const k = addDaysKey(today, i);
+   269→      if (eventOccursOn(ev, k)) return k;
+   270→    }
+   271→    return null;
+   272→  }
+   273→
+   274→  /** Habit check-in: complete today's instance — backend materializes the next one. */
+   275→  async function checkinTask(t: HabitDTO) {
+   276→    if (checkinBusy) return;
+   277→    setCheckinBusy(t.id);
+   278→    try {
+   279→      await endpoints.updateTask(t.id, { status: 'COMPLETED' });
+   280→      const newStreak = t.streak > 0 ? t.streak + 1 : 1;
+   281→      celebrateStreak(newStreak);
+   282→      toast.success(
+   283→        t.streak > 0
+   284→          ? `برافو! سلسلة «${t.title}» وصلت ${newStreak} ${streakCountLabel(t.recurrence, newStreak)} 🔥`
+   285→          : `برافو! خلصت «${t.title}» النهارده 🔥`,
+   286→        { description: 'سجلتلك الجاية في معادها' }
+   287→      );
+   288→      await loadRecurring();
+   289→    } catch (e) {
+   290→      if (isAuthError(e)) {
+   291→        onAuthError();
+   292→        return;
+   293→      }
+   294→      toast.error(apiErrorMessage(e));
+   295→    } finally {
+   296→      setCheckinBusy(null);
+   297→    }
+   298→  }
+   299→
+   300→  const agenda: OccurrenceDTO[] = [
+   301→    ...events.filter((ev) => eventOccursOn(ev, selectedKey)).map((ev) => eventToOccurrence(ev, selectedKey)),
+   302→    ...(plan?.slots ?? []).map(slotToOccurrence),
+   303→  ].sort((a, b) => a.startAt.localeCompare(b.startAt));
+   304→
+   305→  async function updateSlot(slotId: string, status: 'DONE' | 'MISSED' | 'PLANNED') {
+   306→    setSlotBusy(slotId);
+   307→    try {
+   308→      await endpoints.updateSlot(slotId, status);
+   309→      toast.success(status === 'DONE' ? 'برافو! خلصتها ✅' : 'اتشالت من الخطة');
+   310→      await load();
+   311→    } catch (e) {
+   312→      toast.error(apiErrorMessage(e));
+   313→    } finally {
+   314→      setSlotBusy(null);
+   315→    }
+   316→  }
+   317→
+   318→  function openEditEvent(ev: EventDTO) {
+   319→    setEditForm({
+   320→      title: ev.title,
+   321→      startTime: ev.startAt.slice(11, 16),
+   322→      endTime: ev.endAt ? ev.endAt.slice(11, 16) : '',
+   323→      notes: ev.notes ?? '',
+   324→    });
+   325→    setEditEvent(ev);
+   326→  }
+   327→
+   328→  async function saveEvent() {
+   329→    if (!editEvent || savingEvent) return;
+   330→    if (!editForm.title.trim()) {
+   331→      toast.error('العنوان مينفعش يكون فاضي');
+   332→      return;
+   333→    }
+   334→    setSavingEvent(true);
+   335→    try {
+   336→      await endpoints.updateEvent(editEvent.id, {
+   337→        title: editForm.title.trim(),
+   338→        startTime: editForm.startTime,
+   339→        endTime: editForm.endTime || null,
+   340→        notes: editForm.notes.trim() || null,
+   341→      });
+   342→      setEditEvent(null);
+   343→      toast.success('اتعدل الموعد ✅');
+   344→      await load();
+   345→    } catch (e) {
+   346→      toast.error(apiErrorMessage(e));
+   347→    } finally {
+   348→      setSavingEvent(false);
+   349→    }
+   350→  }
+   351→
+   352→  async function confirmDeleteEvent() {
+   353→    if (!deleteEvent || deleting) return;
+   354→    setDeleting(true);
+   355→    try {
+   356→      await endpoints.deleteEvent(deleteEvent.id);
+   357→      setDeleteEvent(null);
+   358→      setEditEvent(null);
+   359→      toast.success('الحدث اتشال 🗑️');
+   360→      await load();
+   361→    } catch (e) {
+   362→      toast.error(apiErrorMessage(e));
+   363→    } finally {
+   364→      setDeleting(false);
+   365→    }
+   366→  }
+   367→
+   368→  async function addEvent() {
+   369→    if (!addForm.title.trim() || !addForm.date || !addForm.startTime || adding) return;
+   370→    setAdding(true);
+   371→    try {
+   372→      await endpoints.createEvent({
+   373→        title: addForm.title.trim(),
+   374→        date: addForm.date,
+   375→        startTime: addForm.startTime,
+   376→        endTime: addForm.endTime || null,
+   377→        recurrence: addForm.recurrence === 'none' ? null : (addForm.recurrence as Recurrence),
+   378→      });
+   379→      setAddOpen(false);
+   380→      setAddForm({ title: '', date: selectedKey, startTime: '', endTime: '', recurrence: 'none' });
+   381→      toast.success('ضفت الموعد 📌');
+   382→      await load();
+   383→    } catch (e) {
+   384→      toast.error(apiErrorMessage(e));
+   385→    } finally {
+   386→      setAdding(false);
+   387→    }
+   388→  }
+   389→
+   390→  return (
+   391→    <div className="space-y-4">
+   392→      <div className="flex items-center justify-between flex-wrap gap-2">
+   393→        <h1 className="text-xl font-extrabold text-stone-900">التقويم</h1>
+   394→        <div className="flex items-center gap-2">
+   395→          {/* Day/Week/Recurring mode toggle */}
+   396→          <div className="flex items-center rounded-full border border-stone-200 bg-white p-0.5" role="tablist" aria-label="عرض التقويم">
+   397→            <button
+   398→              type="button"
+   399→              role="tab"
+   400→              aria-selected={mode === 'day'}
+   401→              onClick={() => setMode('day')}
+   402→              className={cn(
+   403→                'flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+   404→                mode === 'day' ? 'bg-amber-600 text-white shadow-sm' : 'text-stone-500 hover:bg-stone-100'
+   405→              )}
+   406→            >
+   407→              <CalendarPlus className="size-3.5" />
+   408→              يوم
+   409→            </button>
+   410→            <button
+   411→              type="button"
+   412→              role="tab"
+   413→              aria-selected={mode === 'week'}
+   414→              onClick={() => setMode('week')}
+   415→              className={cn(
+   416→                'flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+   417→                mode === 'week' ? 'bg-amber-600 text-white shadow-sm' : 'text-stone-500 hover:bg-stone-100'
+   418→              )}
+   419→            >
+   420→              <CalendarDays className="size-3.5" />
+   421→              أسبوع
+   422→            </button>
+   423→            <button
+   424→              type="button"
+   425→              role="tab"
+   426→              aria-selected={mode === 'recurring'}
+   427→              onClick={() => setMode('recurring')}
+   428→              className={cn(
+   429→                'flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+   430→                mode === 'recurring' ? 'bg-amber-600 text-white shadow-sm' : 'text-stone-500 hover:bg-stone-100'
+   431→              )}
+   432→            >
+   433→              <Repeat className="size-3.5" />
+   434→              المتكرر
+   435→            </button>
+   436→          </div>
+   437→          <Button
+   438→            className="bg-amber-600 hover:bg-amber-700 text-white rounded-full"
+   439→            onClick={() => {
+   440→              setAddForm({ title: '', date: selectedKey, startTime: '', endTime: '', recurrence: 'none' });
+   441→              setAddOpen(true);
+   442→            }}
+   443→          >
+   444→            <CalendarPlus className="size-4" />
+   445→            ضيف موعد
+   446→          </Button>
+   447→        </div>
+   448→      </div>
+   449→
+   450→      {/* Week strip */}
+   451→      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   452→        <CardContent className="p-3">
+   453→          <div className="flex items-center gap-1">
+   454→            <Button
+   455→              variant="ghost"
+   456→              size="icon"
+   457→              className="size-8 text-stone-500 hover:bg-stone-100 shrink-0"
+   458→              onClick={() => setSelectedKey(addDaysKey(selectedKey, -7))}
+   459→              aria-label="الأسبوع اللي فات"
+   460→            >
+   461→              <ChevronRight className="size-4" />
+   462→            </Button>
+   463→            <div className="grid grid-cols-7 flex-1 gap-1">
+   464→              {weekDays.map((k) => {
+   465→                const selected = k === selectedKey;
+   466→                const isToday = k === today;
+   467→                return (
+   468→                  <button
+   469→                    key={k}
+   470→                    type="button"
+   471→                    onClick={() => setSelectedKey(k)}
+   472→                    aria-pressed={selected}
+   473→                    className={cn(
+   474→                      'flex flex-col items-center justify-center rounded-xl py-2 transition-colors min-h-[52px]',
+   475→                      selected
+   476→                        ? 'bg-amber-600 text-white shadow-sm'
+   477→                        : 'text-stone-600 hover:bg-stone-100',
+   478→                      !selected && isToday && 'ring-2 ring-amber-300'
+   479→                    )}
+   480→                  >
+   481→                    <span className={cn('text-[10px] font-bold', selected ? 'text-amber-100' : 'text-stone-400')}>
+   482→                      {weekdayInitial(k)}
+   483→                    </span>
+   484→                    <span className="text-sm font-extrabold tabular-nums">{keyDayNumber(k)}</span>
+   485→                  </button>
+   486→                );
+   487→              })}
+   488→            </div>
+   489→            <Button
+   490→              variant="ghost"
+   491→              size="icon"
+   492→              className="size-8 text-stone-500 hover:bg-stone-100 shrink-0"
+   493→              onClick={() => setSelectedKey(addDaysKey(selectedKey, 7))}
+   494→              aria-label="الأسبوع الجاي"
+   495→            >
+   496→              <ChevronLeft className="size-4" />
+   497→            </Button>
+   498→          </div>
+   499→        </CardContent>
+   500→      </Card>
+   501→
+   502→      {/* Week grid view */}
+   503→      {mode === 'week' ? (
+   504→        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   505→          <CardContent className="p-3 sm:p-4">
+   506→            <div className="overflow-x-auto -mx-1 px-1 pb-1" style={{ scrollbarWidth: 'thin' }}>
+   507→              <div className="grid grid-cols-7 gap-1.5 min-w-[640px]">
+   508→                {weekDays.map((k) => {
+   509→                  const isToday = k === today;
+   510→                  const isSelected = k === selectedKey;
+   511→                  const daySlots = weekPlan?.days.find((d) => d.date === k)?.slots ?? [];
+   512→                  const dayPlannedMin = weekPlan?.days.find((d) => d.date === k)?.plannedMinutes ?? 0;
+   513→                  const dayOccurrences: OccurrenceDTO[] = [
+   514→                    ...events.filter((ev) => eventOccursOn(ev, k)).map((ev) => eventToOccurrence(ev, k)),
+   515→                    ...daySlots.map(slotToOccurrence),
+   516→                  ].sort((a, b) => a.startAt.localeCompare(b.startAt));
+   517→                  return (
+   518→                    <div
+   519→                      key={k}
+   520→                      className={cn(
+   521→                        'rounded-xl border flex flex-col min-h-[180px]',
+   522→                        isToday ? 'border-amber-300 bg-amber-50/40' : 'border-stone-100 bg-stone-50/40'
+   523→                      )}
+   524→                    >
+   525→                      <button
+   526→                        type="button"
+   527→                        onClick={() => {
+   528→                          setSelectedKey(k);
+   529→                          setMode('day');
+   530→                        }}
+   531→                        className={cn(
+   532→                          'flex items-center justify-center gap-1.5 rounded-t-xl py-2 text-xs font-bold transition-colors',
+   533→                          isSelected
+   534→                            ? 'bg-amber-600 text-white'
+   535→                            : isToday
+   536→                              ? 'text-amber-700 hover:bg-amber-100'
+   537→                              : 'text-stone-500 hover:bg-stone-100'
+   538→                        )}
+   539→                        aria-label={`افتح يوم ${weekdayName(k)}`}
+   540→                      >
+   541→                        <span>{weekdayInitial(k)}</span>
+   542→                        <span className="tabular-nums">{keyDayNumber(k)}</span>
+   543→                      </button>
+   544→                      <div className="flex-1 p-1 space-y-1">
+   545→                        {dayOccurrences.length === 0 ? (
+   546→                          <p className="text-center text-[10px] text-stone-300 pt-4">فاضي</p>
+   547→                        ) : (
+   548→                          dayOccurrences.slice(0, 5).map((occ) => {
+   549→                            const isEvent = occ.kind === 'EVENT';
+   550→                            const done = occ.status === 'DONE';
+   551→                            const missed = occ.status === 'MISSED';
+   552→                            return (
+   553→                              <div
+   554→                                key={occ.key}
+   555→                                title={`${fmtTime(occ.startAt)} ${occ.title}`}
+   556→                                className={cn(
+   557→                                  'rounded-lg px-1.5 py-1 text-[10px] leading-tight border transition-colors',
+   558→                                  isEvent
+   559→                                    ? 'bg-amber-100/80 border-amber-200 text-amber-900'
+   560→                                    : done
+   561→                                      ? 'bg-stone-100 border-stone-200 text-stone-400 line-through'
+   562→                                      : missed
+   563→                                        ? 'bg-stone-100 border-stone-200 text-stone-400 opacity-70'
+   564→                                        : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+   565→                                )}
+   566→                              >
+   567→                                <span className="font-bold tabular-nums block">{fmtTime(occ.startAt)}</span>
+   568→                                <span className="block truncate">{occ.title}</span>
+   569→                              </div>
+   570→                            );
+   571→                          })
+   572→                        )}
+   573→                        {dayOccurrences.length > 5 ? (
+   574→                          <button
+   575→                            type="button"
+   576→                            onClick={() => {
+   577→                              setSelectedKey(k);
+   578→                              setMode('day');
+   579→                            }}
+   580→                            className="text-[10px] font-bold text-amber-600 hover:text-amber-700 w-full text-center pt-0.5"
+   581→                          >
+   582→                            +{dayOccurrences.length - 5} كمان
+   583→                          </button>
+   584→                        ) : null}
+   585→                      </div>
+   586→                      {dayPlannedMin > 0 ? (
+   587→                        <p className="text-center text-[9px] text-stone-400 pb-1.5 tabular-nums">
+   588→                          ⏳ {Math.round(dayPlannedMin / 60)} سا
+   589→                        </p>
+   590→                      ) : null}
+   591→                    </div>
+   592→                  );
+   593→                })}
+   594→              </div>
+   595→            </div>
+   596→            <p className="text-[11px] text-stone-400 mt-2 text-center">
+   597→              دوس على أي يوم لتفتح تفاصيله — 🟡 مواعيد ثابتة • 🟢 مهام مخططة
+   598→            </p>
+   599→          </CardContent>
+   600→        </Card>
+   601→      ) : mode === 'recurring' ? (
+   602→        /* ---------- المتكرر hub (BRD §16): habits, recurring events & bills ---------- */
+   603→        <div className="space-y-4">
+   604→          {recurringLoading ? (
+   605→            <div className="space-y-2">
+   606→              <Skeleton className="h-28 rounded-2xl" />
+   607→              <Skeleton className="h-28 rounded-2xl" />
+   608→              <Skeleton className="h-28 rounded-2xl" />
+   609→            </div>
+   610→          ) : (
+   611→            <>
+   612→              {/* Habits — recurring tasks with check-in + streaks (BRD §16) */}
+   613→              <FadeIn>
+   614→                <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+   615→                  <CardContent className="p-4 sm:p-5">
+   616→                    <div className="flex items-center justify-between mb-1">
+   617→                      <h2 className="font-bold text-stone-800 flex items-center gap-2">
+   618→                        <span className="size-8 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center" aria-hidden>
+   619→                          <Flame className="size-4 text-orange-600" />
+   620→                        </span>
+   621→                        عاداتك المتكررة
+   622→                      </h2>
+   623→                      <span className="text-xs font-bold text-stone-400">{habits.length}</span>
+   624→                    </div>
+   625→                    <p className="text-xs text-stone-400 mb-3">
+   626→                      علّم على العادة كل ما تخلصها — وسكرتير يحسبلك سلسلتك ويسجلها الجاية في معادها.
+   627→                    </p>
+   628→                    {habits.length === 0 ? (
+   629→                      <p className="py-6 text-center text-sm text-stone-400">
+   630→                        مفيش عادات متكررة لسه — قول لسكرتير «فتكر يوميًا أذاكر ساعة» 🔄
+   631→                      </p>
+   632→                    ) : (
+   633→                      <ul className="space-y-2 sekretir-scroll max-h-80 overflow-y-auto">
+   634→                        {habits.map((t) => {
+   635→                          const isDueToday = t.isDueToday;
+   636→                          const unit =
+   637→                            t.recurrence === 'DAILY' ? 'يوم' : t.recurrence === 'WEEKLY' ? 'أسبوع' : 'شهر';
+   638→                          return (
+   639→                            <li
+   640→                              key={t.id}
+   641→                              className={cn(
+   642→                                'flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-all duration-200',
+   643→                                isDueToday
+   644→                                  ? 'border-amber-200 bg-amber-50/50 hover:bg-amber-50 hover:shadow-sm'
+   645→                                  : 'border-stone-100 bg-stone-50/50 hover:bg-stone-50 hover:shadow-sm'
+   646→                              )}
+   647→                            >
+   648→                              <span className="text-lg shrink-0" aria-hidden>
+   649→                                {isDueToday ? '🔥' : '🔄'}
+   650→                              </span>
+   651→                              <div className="flex-1 min-w-0">
+   652→                                <p className="text-sm font-semibold text-stone-800 truncate">{t.title}</p>
+   653→                                <p className="text-[10px] text-stone-400">
+   654→                                  {RECURRENCE_LABELS[t.recurrence as Recurrence]}
+   655→                                  {t.deadline ? ` • الجاي ${relativeDay(t.deadline)} ${fmtTime(t.deadline)}` : ''}
+   656→                                  {t.estimatedMinutes ? ` • ${t.estimatedMinutes} د` : ''}
+   657→                                </p>
+   658→                              </div>
+   659→                              <div className="flex flex-col items-end gap-1 shrink-0">
+   660→                                {t.streak > 0 ? (
+   661→                                  <span
+   662→                                    className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-orange-100 border border-orange-200 text-orange-700 tabular-nums"
+   663→                                    title={`أطول سلسلة: ${t.bestStreak} ${unit}`}
+   664→                                  >
+   665→                                    🔥 {t.streak} {streakCountLabel(t.recurrence as Recurrence, t.streak)}
+   666→                                  </span>
+   667→                                ) : t.totalCompletions > 0 ? (
+   668→                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200 text-stone-500">
+   669→                                    أفضل: {t.bestStreak} {unit}
+   670→                                  </span>
+   671→                                ) : (
+   672→                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200 text-stone-400">
+   673→                                    أول مرة
+   674→                                  </span>
+   675→                                )}
+   676→                                <Button
+   677→                                  size="sm"
+   678→                                  disabled={checkinBusy === t.id}
+   679→                                  onClick={() => checkinTask(t)}
+   680→                                  className={cn(
+   681→                                    'h-8 rounded-full text-xs w-full',
+   682→                                    isDueToday
+   683→                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+   684→                                      : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
+   685→                                  )}
+   686→                                >
+   687→                                  {checkinBusy === t.id ? (
+   688→                                    <Loader2 className="size-3.5 animate-spin" />
+   689→                                  ) : (
+   690→                                    'خلصتها ✅'
+   691→                                  )}
+   692→                                </Button>
+   693→                              </div>
+   694→                            </li>
+   695→                          );
+   696→                        })}
+   697→                      </ul>
+   698→                    )}
+   699→                  </CardContent>
+   700→                </Card>
+   701→              </FadeIn>
+   702→
+   703→              {/* Recurring fixed events */}
+   704→              <FadeIn delay={0.08}>
+   705→                <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+   706→                  <CardContent className="p-4 sm:p-5">
+   707→                    <h2 className="font-bold text-stone-800 flex items-center gap-2 mb-3">
+   708→                      <span className="size-8 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center" aria-hidden>
+   709→                        <Repeat className="size-4 text-amber-600" />
+   710→                      </span>
+   711→                      مواعيد ثابتة متكررة
+   712→                    </h2>
+   713→                    {recurringEvents.length === 0 ? (
+   714→                      <p className="py-6 text-center text-sm text-stone-400">مفيش مواعيد متكررة — ضيف موعد وحدد له تكرار 📅</p>
+   715→                    ) : (
+   716→                      <ul className="space-y-2 sekretir-scroll max-h-72 overflow-y-auto">
+   717→                        {recurringEvents.map((ev) => {
+   718→                          const next = nextEventDay(ev);
+   719→                          return (
+   720→                            <li
+   721→                              key={ev.id}
+   722→                              className="flex items-center gap-3 rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2.5 hover:bg-amber-50 transition-colors"
+   723→                            >
+   724→                              <span className="size-9 rounded-xl bg-white border border-amber-100 flex items-center justify-center text-base shrink-0" aria-hidden>
+   725→                                📌
+   726→                              </span>
+   727→                              <div className="flex-1 min-w-0">
+   728→                                <p className="text-sm font-semibold text-stone-800 truncate">{ev.title}</p>
+   729→                                <p className="text-[10px] text-stone-400">
+   730→                                  {RECURRENCE_LABELS[ev.recurrence as Recurrence]} • {fmtTime(ev.startAt)}
+   731→                                  {ev.endAt ? ` – ${fmtTime(ev.endAt)}` : ''}
+   732→                                </p>
+   733→                              </div>
+   734→                              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-white border border-amber-200 text-amber-700 shrink-0">
+   735→                                {next ? relativeDayFromKey(next) : '—'}
+   736→                              </span>
+   737→                            </li>
+   738→                          );
+   739→                        })}
+   740→                      </ul>
+   741→                    )}
+   742→                  </CardContent>
+   743→                </Card>
+   744→              </FadeIn>
+   745→
+   746→              {/* Recurring financial commitments */}
+   747→              <FadeIn delay={0.16}>
+   748→                <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+   749→                  <CardContent className="p-4 sm:p-5">
+   750→                    <div className="flex items-center justify-between mb-1">
+   751→                      <h2 className="font-bold text-stone-800 flex items-center gap-2">
+   752→                        <span className="size-8 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center" aria-hidden>
+   753→                          <Wallet className="size-4 text-emerald-600" />
+   754→                        </span>
+   755→                        التزاماتك المالية المتكررة
+   756→                      </h2>
+   757→                      {recurringMonthlyTotal > 0 ? (
+   758→                        <span className="text-xs font-extrabold text-rose-600 tabular-nums">
+   759→                          {fmtMoney(recurringMonthlyTotal)} ج/شهر
+   760→                        </span>
+   761→                      ) : null}
+   762→                    </div>
+   763→                    <p className="text-xs text-stone-400 mb-3">دي اللي بتتسحب منك كل شهر — سكرتير حاسبها في ميزانيتك.</p>
+   764→                    {recurringExpenses.length === 0 ? (
+   765→                      <p className="py-6 text-center text-sm text-stone-400">
+   766→                        مفيش التزامات متكررة — سجل فاتورة النت كمصروف متكرر وهنا هنا 💡
+   767→                      </p>
+   768→                    ) : (
+   769→                      <ul className="space-y-2 sekretir-scroll max-h-72 overflow-y-auto">
+   770→                        {recurringExpenses.map((x) => {
+   771→                          const meta = CATEGORY_META[x.category];
+   772→                          return (
+   773→                            <li
+   774→                              key={x.id}
+   775→                              className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 px-3 py-2.5 hover:bg-emerald-50 transition-colors"
+   776→                            >
+   777→                              <span className="size-9 rounded-xl bg-white border border-emerald-100 flex items-center justify-center text-base shrink-0" aria-hidden>
+   778→                                {meta.icon}
+   779→                              </span>
+   780→                              <div className="flex-1 min-w-0">
+   781→                                <p className="text-sm font-semibold text-stone-800 truncate">
+   782→                                  {x.description || meta.label}
+   783→                                </p>
+   784→                                <p className="text-[10px] text-stone-400">
+   785→                                  {x.recurrence ? RECURRENCE_LABELS[x.recurrence as Recurrence] : 'بتتكرر'}
+   786→                                  {x.nextDueAt ? ` • الجاي ${relativeDay(x.nextDueAt)}` : ''}
+   787→                                </p>
+   788→                              </div>
+   789→                              <span className="text-sm font-extrabold text-rose-600 tabular-nums shrink-0">
+   790→                                −{fmtMoney(x.amount)} ج
+   791→                              </span>
+   792→                            </li>
+   793→                          );
+   794→                        })}
+   795→                      </ul>
+   796→                    )}
+   797→                  </CardContent>
+   798→                </Card>
+   799→              </FadeIn>
+   800→            </>
+   801→          )}
+   802→        </div>
+   803→      ) : (
+   804→      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   805→        <CardContent className="p-4 sm:p-5">
+   806→          <h2 className="font-bold text-stone-800 mb-1">
+   807→            {weekdayName(selectedKey)} — {relativeDayFromKey(selectedKey)}
+   808→          </h2>
+   809→
+   810→          {loading ? (
+   811→            <div className="space-y-2 mt-3">
+   812→              {[0, 1].map((i) => (
+   813→                <Skeleton key={i} className="h-16 rounded-xl" />
+   814→              ))}
+   815→            </div>
+   816→          ) : agenda.length === 0 ? (
+   817→            <div className="py-10 text-center">
+   818→              <p className="text-3xl mb-2" aria-hidden>📭</p>
+   819→              <p className="text-sm text-stone-400">يوم فاضي خالص — استغله في حاجة حلوة 😌</p>
+   820→            </div>
+   821→          ) : (
+   822→            <ul className="mt-3 space-y-2">
+   823→              {agenda.map((occ) => {
+   824→                const isEvent = occ.kind === 'EVENT';
+   825→                const done = occ.kind === 'PLANNED_TASK' && occ.status === 'DONE';
+   826→                const missed = occ.kind === 'PLANNED_TASK' && occ.status === 'MISSED';
+   827→                return (
+   828→                  <li
+   829→                    key={occ.key}
+   830→                    className={cn(
+   831→                      'rounded-xl border px-3 py-2.5 flex items-start gap-2.5',
+   832→                      isEvent
+   833→                        ? 'border-amber-200 bg-amber-50/60'
+   834→                        : done
+   835→                          ? 'border-stone-200 bg-stone-50'
+   836→                          : 'border-emerald-200 bg-emerald-50/60'
+   837→                    )}
+   838→                  >
+   839→                    {occ.kind === 'PLANNED_TASK' ? (
+   840→                      <Checkbox
+   841→                        checked={done}
+   842→                        disabled={slotBusy === occ.refId}
+   843→                        onCheckedChange={() => updateSlot(occ.refId, done ? 'PLANNED' : 'DONE')}
+   844→                        className="mt-0.5 size-5 shrink-0 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+   845→                        aria-label="خلصت المهمة"
+   846→                      />
+   847→                    ) : (
+   848→                      <span className="text-lg leading-none mt-0.5 shrink-0" aria-hidden>
+   849→                        📌
+   850→                      </span>
+   851→                    )}
+   852→
+   853→                    <div className="flex-1 min-w-0">
+   854→                      <p
+   855→                        className={cn(
+   856→                          'font-semibold text-sm break-words',
+   857→                          done ? 'line-through text-stone-400' : isEvent ? 'text-stone-800' : 'text-emerald-900'
+   858→                        )}
+   859→                      >
+   860→                        {occ.kind === 'PLANNED_TASK' ? '🤖 ' : ''}
+   861→                        {occ.title}
+   862→                      </p>
+   863→                      <p className="text-xs text-stone-500 tabular-nums mt-0.5 flex items-center gap-1.5 flex-wrap">
+   864→                        <span>
+   865→                          {fmtTime(occ.startAt)}
+   866→                          {occ.endAt ? ` – ${fmtTime(occ.endAt)}` : ''}
+   867→                          {occ.isRecurring ? ' • 🔁 متكرر' : ''}
+   868→                        </span>
+   869→                        {occ.kind === 'PLANNED_TASK' && occ.taskIsTracking && occ.taskTrackingStartedAt ? (
+   870→                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-700">
+   871→                            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
+   872→                            شغّال {Math.max(1, Math.floor((Date.now() - new Date(occ.taskTrackingStartedAt).getTime()) / 60000))} د
+   873→                          </span>
+   874→                        ) : null}
+   875→                      </p>
+   876→                    </div>
+   877→
+   878→                    {isEvent ? (
+   879→                      <div className="flex items-center gap-1 shrink-0">
+   880→                        <Button
+   881→                          variant="ghost"
+   882→                          size="sm"
+   883→                          className="h-7 text-xs text-amber-700 hover:bg-amber-100"
+   884→                          onClick={() => {
+   885→                            const ev = events.find((x) => x.id === occ.eventId);
+   886→                            if (ev) openEditEvent(ev);
+   887→                          }}
+   888→                        >
+   889→                          تعديل
+   890→                        </Button>
+   891→                        <Button
+   892→                          variant="ghost"
+   893→                          size="icon"
+   894→                          className="size-7 text-stone-300 hover:text-rose-600 hover:bg-rose-50"
+   895→                          onClick={() => {
+   896→                            const ev = events.find((x) => x.id === occ.eventId);
+   897→                            if (ev) setDeleteEvent(ev);
+   898→                          }}
+   899→                          aria-label="امسح الحدث"
+   900→                        >
+   901→                          <Trash2 className="size-3.5" />
+   902→                        </Button>
+   903→                      </div>
+   904→                    ) : occ.status === 'PLANNED' ? (
+   905→                      <Button
+   906→                        variant="ghost"
+   907→                        size="sm"
+   908→                        disabled={slotBusy === occ.refId}
+   909→                        className="h-7 text-xs text-stone-500 hover:bg-stone-200/60 shrink-0"
+   910→                        onClick={() => updateSlot(occ.refId, 'MISSED')}
+   911→                      >
+   912→                        شيله من الخطة
+   913→                      </Button>
+   914→                    ) : missed ? (
+   915→                      <span className="text-[10px] font-bold text-stone-400 shrink-0 mt-1">اتشالت</span>
+   916→                    ) : (
+   917→                      <span className="text-[10px] font-bold text-emerald-600 shrink-0 mt-1">خلصت ✅</span>
+   918→                    )}
+   919→                  </li>
+   920→                );
+   921→              })}
+   922→            </ul>
+   923→          )}
+   924→
+   925→          {plan && plan.slots.length > 0 ? (
+   926→            <p className="text-xs text-stone-400 mt-3 border-t border-stone-100 pt-3">
+   927→              ⏳ مخطط {Math.round(plan.plannedMinutes / 60)} سا • فاضي {Math.round(plan.freeMinutes / 60)} سا
+   928→              {plan.unplanned.length > 0 ? ` • ${plan.unplanned.length} مهمة بره الخطة` : ''}
+   929→            </p>
+   930→          ) : null}
+   931→        </CardContent>
+   932→      </Card>
+   933→      )}
+   934→
+   935→      {/* Edit event dialog */}
+   936→      <Dialog open={editEvent !== null} onOpenChange={(o) => !o && setEditEvent(null)}>
+   937→        <DialogContent className="rounded-2xl">
+   938→          <DialogHeader>
+   939→            <DialogTitle>عدّل الموعد 📌</DialogTitle>
+   940→            <DialogDescription>عدّل بيانات الحدث واحفظ.</DialogDescription>
+   941→          </DialogHeader>
+   942→          <div className="space-y-4 py-1">
+   943→            <div className="space-y-2">
+   944→              <Label htmlFor="ev-title">العنوان</Label>
+   945→              <Input
+   946→                id="ev-title"
+   947→                value={editForm.title}
+   948→                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+   949→              />
+   950→            </div>
+   951→            <div className="grid grid-cols-2 gap-3">
+   952→              <div className="space-y-2">
+   953→                <Label htmlFor="ev-start">من الساعة</Label>
+   954→                <Input
+   955→                  id="ev-start"
+   956→                  type="time"
+   957→                  dir="ltr"
+   958→                  value={editForm.startTime}
+   959→                  onChange={(e) => setEditForm((f) => ({ ...f, startTime: e.target.value }))}
+   960→                />
+   961→              </div>
+   962→              <div className="space-y-2">
+   963→                <Label htmlFor="ev-end">لحد الساعة</Label>
+   964→                <Input
+   965→                  id="ev-end"
+   966→                  type="time"
+   967→                  dir="ltr"
+   968→                  value={editForm.endTime}
+   969→                  onChange={(e) => setEditForm((f) => ({ ...f, endTime: e.target.value }))}
+   970→                />
+   971→              </div>
+   972→            </div>
+   973→            <div className="space-y-2">
+   974→              <Label htmlFor="ev-notes">ملاحظات</Label>
+   975→              <Input
+   976→                id="ev-notes"
+   977→                value={editForm.notes}
+   978→                onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+   979→                placeholder="اختياري"
+   980→              />
+   981→            </div>
+   982→          </div>
+   983→          <DialogFooter className="gap-2">
+   984→            <Button variant="outline" onClick={() => setEditEvent(null)}>
+   985→              إلغاء
+   986→            </Button>
+   987→            <Button
+   988→              className="bg-amber-600 hover:bg-amber-700 text-white"
+   989→              onClick={saveEvent}
+   990→              disabled={savingEvent}
+   991→            >
+   992→              {savingEvent ? <Loader2 className="size-4 animate-spin" /> : null}
+   993→              حفظ
+   994→            </Button>
+   995→          </DialogFooter>
+   996→        </DialogContent>
+   997→      </Dialog>
+   998→
+   999→      {/* Add event dialog */}
+  1000→      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+  1001→        <DialogContent className="rounded-2xl">
+  1002→          <DialogHeader>
+  1003→            <DialogTitle>موعد ثابت جديد 📌</DialogTitle>
+  1004→            <DialogDescription>محاضرة، شغل، موعد دكتور... اللي يشهّيك.</DialogDescription>
+  1005→          </DialogHeader>
+  1006→          <div className="space-y-4 py-1">
+  1007→            <div className="space-y-2">
+  1008→              <Label htmlFor="add-ev-title">العنوان</Label>
+  1009→              <Input
+  1010→                id="add-ev-title"
+  1011→                value={addForm.title}
+  1012→                onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
+  1013→                placeholder="مثلاً: محاضرة Algorithms"
+  1014→              />
+  1015→            </div>
+  1016→            <div className="grid grid-cols-3 gap-3">
+  1017→              <div className="space-y-2">
+  1018→                <Label htmlFor="add-ev-date">اليوم</Label>
+  1019→                <Input
+  1020→                  id="add-ev-date"
+  1021→                  type="date"
+  1022→                  dir="ltr"
+  1023→                  value={addForm.date}
+  1024→                  onChange={(e) => setAddForm((f) => ({ ...f, date: e.target.value }))}
+  1025→                />
+  1026→              </div>
+  1027→              <div className="space-y-2">
+  1028→                <Label htmlFor="add-ev-start">من</Label>
+  1029→                <Input
+  1030→                  id="add-ev-start"
+  1031→                  type="time"
+  1032→                  dir="ltr"
+  1033→                  value={addForm.startTime}
+  1034→                  onChange={(e) => setAddForm((f) => ({ ...f, startTime: e.target.value }))}
+  1035→                />
+  1036→              </div>
+  1037→              <div className="space-y-2">
+  1038→                <Label htmlFor="add-ev-end">لحد</Label>
+  1039→                <Input
+  1040→                  id="add-ev-end"
+  1041→                  type="time"
+  1042→                  dir="ltr"
+  1043→                  value={addForm.endTime}
+  1044→                  onChange={(e) => setAddForm((f) => ({ ...f, endTime: e.target.value }))}
+  1045→                />
+  1046→              </div>
+  1047→            </div>
+  1048→            <div className="space-y-2">
+  1049→              <Label>التكرار</Label>
+  1050→              <Select
+  1051→                value={addForm.recurrence}
+  1052→                onValueChange={(v) => setAddForm((f) => ({ ...f, recurrence: v }))}
+  1053→              >
+  1054→                <SelectTrigger className="w-full">
+  1055→                  <SelectValue />
+  1056→                </SelectTrigger>
+  1057→                <SelectContent>
+  1058→                  <SelectItem value="none">بدون</SelectItem>
+  1059→                  {RECURRENCE_OPTIONS.map((r) => (
+  1060→                    <SelectItem key={r.value} value={r.value}>
+  1061→                      🔁 {r.label}
+  1062→                    </SelectItem>
+  1063→                  ))}
+  1064→                </SelectContent>
+  1065→              </Select>
+  1066→            </div>
+  1067→          </div>
+  1068→          <DialogFooter className="gap-2">
+  1069→            <Button variant="outline" onClick={() => setAddOpen(false)}>
+  1070→              إلغاء
+  1071→            </Button>
+  1072→            <Button
+  1073→              className="bg-amber-600 hover:bg-amber-700 text-white"
+  1074→              onClick={addEvent}
+  1075→              disabled={adding || !addForm.title.trim() || !addForm.startTime}
+  1076→            >
+  1077→              {adding ? <Loader2 className="size-4 animate-spin" /> : <CalendarPlus className="size-4" />}
+  1078→              ضيف الموعد
+  1079→            </Button>
+  1080→          </DialogFooter>
+  1081→        </DialogContent>
+  1082→      </Dialog>
+  1083→
+  1084→      {/* Delete event confirm */}
+  1085→      <Dialog open={deleteEvent !== null} onOpenChange={(o) => !o && setDeleteEvent(null)}>
+  1086→        <DialogContent className="rounded-2xl max-w-sm">
+  1087→          <DialogHeader>
+  1088→            <DialogTitle>تمسح «{deleteEvent?.title}»؟ 🗑️</DialogTitle>
+  1089→            <DialogDescription>
+  1090→              الحدث هيتشال من التقويم
+  1091→              {deleteEvent?.recurrence ? ' — وحتى التكرارات الجاية' : ''}.
+  1092→            </DialogDescription>
+  1093→          </DialogHeader>
+  1094→          <DialogFooter className="gap-2">
+  1095→            <Button variant="outline" onClick={() => setDeleteEvent(null)}>
+  1096→              سيبه
+  1097→            </Button>
+  1098→            <Button
+  1099→              className="bg-rose-600 hover:bg-rose-700 text-white"
+  1100→              onClick={confirmDeleteEvent}
+  1101→              disabled={deleting}
+  1102→            >
+  1103→              {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+  1104→              امسح
+  1105→            </Button>
+  1106→          </DialogFooter>
+  1107→        </DialogContent>
+  1108→      </Dialog>
+  1109→    </div>
+  1110→  );
+  1111→}
+  1112→

@@ -396,3 +396,35 @@ Task: Status assessment + browser QA + new features (category drill-down report,
 - Habit check-in marks the task COMPLETED and materializes the next instance — if a user checks in twice quickly (or double-clicks), the guard is `checkinBusy` UI-only; server-side double-materialization is possible but low risk.
 - agent-browser can't capture mid-animation confetti in a static screenshot (function verified by execution + absence of errors).
 - Next round suggestions: per-task timer on assistant quick actions; PWA offline shell; TTS Arabic voice comparison; budget auto-copy backend REMINDER on month rollover; weekly plan "أسبوع الجاي" quick-jump chips; notification center grouping by day.
+---
+Task ID: cron-20261004-9
+Agent: main (Z.ai Code) — webDevReview round 9
+Task: Status assessment + browser QA + new features (notification center grouping, month-rollover budget reminder, week-view header, CSV export, keyboard shortcuts, streak rescue toast)
+
+## Current project status
+- STABLE. Pre-work browser QA passed on all views (light + dark), AI QUERY regression OK (real data, Egyptian masculine tone, verbatim names), lint clean, tsc clean for app code (only external skills/ folder errors), no runtime errors in dev.log. Demo login demo@sekretir.app / 123456 works (re-seed from round 8 had invalidated old sessions).
+- QA environment note for future rounds: agent-browser semantic locators (`find role button`) hit the HIDDEN mobile bottom-nav buttons — always click the visible desktop nav via `eval` (`b.offsetParent!==null` check) or use fresh snapshot refs after every re-render (refs go stale).
+
+## This round: completed modifications & verification
+1. **Notification center upgrade (BRD §28)** — full redesign of the bell popover:
+   - Day grouping: sticky group headers النهارده / امبارح / أقدم (Cairo wall-clock day compare via isoDayKey), each with a count.
+   - Per-type tinted icon chips (rose=overdue/deadline, amber=budget/commitments, emerald=events/tasks, orange=habits/AI, stone=summary/replan) — dark mode auto-covered by existing globals.css overrides; added missing `.dark .bg-white\/85` override for the sticky header strip.
+   - Header upgrade: amber icon chip + "N جديد" rose pill + "علّم الكل مقروء" (CheckCheck icon, disabled when 0 unread); richer empty state (✨ tile + subtitle); bell icon now wobbles (`sekretir-swing` keyframes) while unread exists; unread rows keep amber tint + pulsing dot; relative time labels ("النهارده 15:26" / "امبارح 15:26" / "12 أكتوبر 15:26"); hover scale on chips.
+2. **Month-rollover budget reminder (BRD §19/§28)** — new `BUDGET_REMINDER` notification type:
+   - DashboardUseCases.getDashboard now also fetches the PREVIOUS month's budget (parallel query, January→December year rollover handled); syncNotifications emits "الشهر ده لسه من غير ميزانية 💰" with last month's amount + copy hint when current month has no budget but prev month did. Deduped per month (`budgetmissed-YYYY-M`).
+   - E2E verified via curl: deleted current-month budget + created prev-month 6500 → dashboard → notification fired with exact amount; then restored (budget 8000 back, prev-month test budget + reminder deleted).
+3. **Week-view header with quick jumps (calendar)** — week mode now has its own header row: range label ("4 — 10 أكتوبر 2026"), weekly load badge ("⏳ N سا مخططة", title tooltip), "الأسبوع الحالي" emerald badge when viewing the current week, and quick-jump chips اللي فات / النهارده / الجاي (النهارده disabled when current week). Verified in browser.
+4. **CSV month export (BRD §19)** — "CSV ⬇" ghost button in the تقرير الشهر card header:
+   - Client-side build from FinanceSummaryDTO: overview (budget/spent/remaining/income/net), per-category rows (spend/limit/remaining), full expense + income ledgers. RFC-style escaping, CRLF, UTF-8 BOM for Arabic Excel, filename `sekretir-report-YYYY-MM.csv`.
+   - Verified by intercepting the Blob in-browser: correct Arabic content and exact figures (8000/760/7240/4500/3740).
+5. **Keyboard shortcuts (power users)** — global keydown in page.tsx: "/" → jumps to المساعد and focuses the chat box (new `data-sekretir-chat-input` on AiInput); digits 1-6 → switch views. Guarded: ignored while typing in fields, with modifier keys held, or inside a MODAL dialog only (`[role="dialog"][aria-modal="true"]` — bug found & fixed during E2E: Radix non-modal Popover also carries role="dialog" and originally blocked the shortcut). Footer now shows the shortcuts as kbd hints.
+6. **Streak rescue toast (BRD §16)** — evening habit check-in (>= 20:00 Cairo) on a due habit with alive streak >= 2 now says "لحقت على السلسلة! 🔥 … كان قريب يقع!" instead of the regular praise (companion to the streak-at-risk notification).
+7. **Data hygiene** — deleted stray English QA task «give me some money» (leftover from an earlier round's AI test) + its stale notifications; auto-replan after deletion re-flowed today's slots (4 sequential slots 18:40→22:15, verified no overlaps/junk via API).
+
+## Unresolved issues / risks & next priorities
+- MONTH_REPORT routing still occasionally falls back to GENERAL (LLM nondeterminism) — GENERAL answers correctly from real data, acceptable.
+- Week header chips + day-strip arrows both navigate weeks; they share selectedKey so they stay in sync (no bug, just two paths).
+- CSV export is client-side from the loaded summary — for very large months the summary endpoint caps rows; fine for personal scale.
+- Notification "mark one as read" optimistic update still reloads on failure (unchanged from before).
+- Next round suggestions: PWA offline shell (service worker + manifest + dark variant icon); TTS Arabic voice comparison; auto-copy-budget one-click action inside the BUDGET_REMINDER notification (deep-link chip to finance copy button); notification center "mark read on scroll" or per-group collapse; AI reschedule tests expansion ("أجل مهمة X لبكرة" dedicated POSTPONE regression suite).
+- QA artifacts: download/qa-r9-home.png, qa-r9-tasks.png, qa-r9-finance.png, qa-r9-calendar.png, qa-r9-assistant.png, qa-r9-ai-reply2.png, qa-r9-dark-home.png, qa-r9-week-header.png, qa-r9-notifs.png, qa-r9-dark-notifs.png, qa-r9-final-home.png.

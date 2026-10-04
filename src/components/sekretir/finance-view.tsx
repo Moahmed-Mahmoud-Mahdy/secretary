@@ -8,6 +8,7 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
+  Download,
   Loader2,
   Pencil,
   PiggyBank,
@@ -557,6 +558,7 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
           monthSpent={summary.monthSpent}
           income={summary.incomeThisMonth}
           month={monthLabel(month)}
+          onExportCsv={() => exportMonthCsv(summary, month)}
         />
       ) : null}
 
@@ -1416,11 +1418,13 @@ function MonthReportCard({
   monthSpent,
   income,
   month,
+  onExportCsv,
 }: {
   report: MonthReport;
   monthSpent: number;
   income: number;
   month: string;
+  onExportCsv: () => void;
 }) {
   const verdict = VERDICT_META[report.verdict];
   const delta = report.deltaPct;
@@ -1434,15 +1438,28 @@ function MonthReportCard({
             <BarChart3 className="size-5 text-sky-600" />
             تقرير {month}
           </h2>
-          <span
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold',
-              verdict.badge
-            )}
-          >
-            <span className={cn('size-1.5 rounded-full', verdict.dot)} aria-hidden />
-            {verdict.label}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onExportCsv}
+              className="h-7 rounded-full text-[11px] text-stone-500 hover:text-emerald-700 hover:bg-emerald-50"
+              title="نزّل تقرير الشهر كملف Excel (CSV)"
+              aria-label="تصدير تقرير الشهر CSV"
+            >
+              <Download className="size-3.5" />
+              CSV
+            </Button>
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold',
+                verdict.badge
+              )}
+            >
+              <span className={cn('size-1.5 rounded-full', verdict.dot)} aria-hidden />
+              {verdict.label}
+            </span>
+          </div>
         </div>
 
         {/* Stat tiles */}
@@ -1543,4 +1560,73 @@ function MonthReportCard({
 
 function isReportCurrent(report: MonthReport): boolean {
   return report.projectedSpent !== null;
+}
+
+// ============================================================
+// CSV month export (BRD §19) — client-side build from the same
+// FinanceSummary the report card uses. BOM-prefixed so Arabic
+// opens correctly in Excel.
+// ============================================================
+
+function csvCell(value: string | number | null | undefined): string {
+  const s = String(value ?? '');
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function csvRow(cells: (string | number | null | undefined)[]): string {
+  return cells.map(csvCell).join(',');
+}
+
+export function exportMonthCsv(summary: FinanceSummaryDTO, monthKey: string): void {
+  const lines: string[] = [];
+
+  // Overview
+  lines.push(csvRow(['تقرير سكرتير — ' + monthLabel(monthKey)]));
+  lines.push(csvRow(['الميزانية', summary.budget || 'من غير ميزانية']));
+  lines.push(csvRow(['صرفت', summary.monthSpent]));
+  lines.push(csvRow(['فاضل', summary.budget ? summary.budget - summary.monthSpent : '—']));
+  lines.push(csvRow(['دخل الشهر', summary.incomeThisMonth]));
+  lines.push(csvRow(['الصافي', summary.incomeThisMonth - summary.monthSpent]));
+  lines.push('');
+
+  // Categories
+  lines.push(csvRow(['البنود', 'صرف', 'الحد', 'المتبقي']));
+  for (const c of summary.byCategory) {
+    const limit = summary.categoryLimits.find((cl) => cl.category === c.category);
+    lines.push(
+      csvRow([
+        CATEGORY_META[c.category]?.label ?? c.category,
+        c.total,
+        limit ? limit.limit : '',
+        limit ? limit.limit - c.total : '',
+      ])
+    );
+  }
+  lines.push('');
+
+  // Expenses
+  lines.push(csvRow(['المصاريف', 'التاريخ', 'الفئة', 'المبلغ', 'الوصف']));
+  for (const e of summary.expenses) {
+    lines.push(
+      csvRow([e.date.slice(0, 10), CATEGORY_META[e.category]?.label ?? e.category, e.amount, e.description || ''])
+    );
+  }
+  lines.push('');
+
+  // Incomes
+  lines.push(csvRow(['الدخل', 'التاريخ', 'المصدر', 'المبلغ', 'ملاحظات']));
+  for (const i of summary.incomes) {
+    lines.push(csvRow([i.date.slice(0, 10), i.source, i.amount, i.description || '']));
+  }
+
+  const csv = '\uFEFF' + lines.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sekretir-report-${monthKey}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

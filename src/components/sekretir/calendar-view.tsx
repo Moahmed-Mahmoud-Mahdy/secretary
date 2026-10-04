@@ -51,8 +51,10 @@ import {
 import { CATEGORY_META, RECURRENCE_LABELS, RECURRENCE_OPTIONS, fmtMoney, streakCountLabel } from '@/lib/sekretir/constants';
 import {
   addDaysKey,
+  cairoHourNow,
   fmtTime,
   keyDayNumber,
+  monthLabel,
   relativeDay,
   relativeDayFromKey,
   todayKey,
@@ -279,10 +281,15 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
       await endpoints.updateTask(t.id, { status: 'COMPLETED' });
       const newStreak = t.streak > 0 ? t.streak + 1 : 1;
       celebrateStreak(newStreak);
+      // Evening rescue: checking in a due, alive streak habit late at night
+      // is a "caught up" save (BRD §16 — streak-at-risk companion).
+      const isEveningRescue = cairoHourNow() >= 20 && t.isDueToday && t.streak >= 2;
       toast.success(
-        t.streak > 0
-          ? `برافو! سلسلة «${t.title}» وصلت ${newStreak} ${streakCountLabel(t.recurrence, newStreak)} 🔥`
-          : `برافو! خلصت «${t.title}» النهارده 🔥`,
+        isEveningRescue
+          ? `لحقت على السلسلة! 🔥 «${t.title}» بقت ${newStreak} ${streakCountLabel(t.recurrence, newStreak)} — كان قريب يقع!`
+          : t.streak > 0
+            ? `برافو! سلسلة «${t.title}» وصلت ${newStreak} ${streakCountLabel(t.recurrence, newStreak)} 🔥`
+            : `برافو! خلصت «${t.title}» النهارده 🔥`,
         { description: 'سجلتلك الجاية في معادها' }
       );
       await loadRecurring();
@@ -503,6 +510,62 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
       {mode === 'week' ? (
         <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="p-3 sm:p-4">
+            {/* Week header: range + weekly load + quick jumps */}
+            {(() => {
+              const weekTotalMin = weekPlan?.days.reduce((s, d) => s + d.plannedMinutes, 0) ?? 0;
+              const weekIsCurrent = weekStart === weekStartKey(today);
+              return (
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="text-sm font-extrabold text-stone-800 whitespace-nowrap">
+                      {keyDayNumber(weekDays[0])} — {keyDayNumber(weekDays[6])} {monthLabel(weekDays[6].slice(0, 7))}
+                    </h3>
+                    {weekTotalMin > 0 ? (
+                      <span
+                        className="rounded-full bg-amber-50 border border-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 tabular-nums whitespace-nowrap"
+                        title="إجمالي الوقت المخطط في الأسبوع ده"
+                      >
+                        ⏳ {Math.round(weekTotalMin / 60)} سا مخططة
+                      </span>
+                    ) : null}
+                    {weekIsCurrent ? (
+                      <span className="rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">الأسبوع الحالي</span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 rounded-full text-xs text-stone-600 hover:bg-stone-100"
+                      onClick={() => setSelectedKey(addDaysKey(selectedKey, -7))}
+                      aria-label="انتقل للأسبوع اللي فات"
+                    >
+                      <ChevronRight className="size-3.5" />
+                      اللي فات
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={weekIsCurrent}
+                      className="h-7 rounded-full text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-40"
+                      onClick={() => setSelectedKey(todayKey())}
+                    >
+                      النهارده
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 rounded-full text-xs text-stone-600 hover:bg-stone-100"
+                      onClick={() => setSelectedKey(addDaysKey(selectedKey, 7))}
+                      aria-label="انتقل للأسبوع الجاي"
+                    >
+                      الجاي
+                      <ChevronLeft className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="overflow-x-auto -mx-1 px-1 pb-1" style={{ scrollbarWidth: 'thin' }}>
               <div className="grid grid-cols-7 gap-1.5 min-w-[640px]">
                 {weekDays.map((k) => {

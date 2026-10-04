@@ -204,6 +204,7 @@ export function AiInput({
         placeholder={placeholder}
         disabled={disabled || recording || transcribing}
         autoFocus={autoFocus}
+        data-sekretir-chat-input
         className="border-0 shadow-none focus-visible:ring-0 bg-transparent text-base h-10 flex-1 px-0"
         aria-label="اكتب لسكرتير"
       />
