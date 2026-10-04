@@ -215,6 +215,67 @@ html.dark {
 .dark .hover\:bg-stone-200\/60:hover { background-color: rgb(255 255 255 / 0.08); }
 .dark .hover\:text-stone-700:hover { color: #d6d3d1; }
 
+/*
+ * Extended dark coverage — opacity-modified tints & missed utilities (r12).
+ * Tailwind generates a DISTINCT class for every opacity variant (bg-rose-50/40
+ * is NOT bg-rose-50), so each needs its own escaped selector or it renders as
+ * the raw light pastel on the dark theme.
+ */
+
+/* Stone fills / borders / rings */
+.dark .bg-stone-50\/40 { background-color: rgb(28 25 23 / 0.45); }
+.dark .bg-stone-50\/50 { background-color: rgb(28 25 23 / 0.5); }
+.dark .bg-stone-300 { background-color: #57534e; }
+.dark .border-stone-50 { border-color: rgb(255 255 255 / 0.05); }
+.dark .border-stone-300 { border-color: rgb(255 255 255 / 0.14); }
+.dark .text-stone-200 { color: #57534e; }
+.dark .ring-white { --tw-ring-color: #1c1917; }
+.dark .group-hover\:bg-white:hover { background-color: rgb(255 255 255 / 0.06); }
+.dark .group-hover\:text-amber-600 { color: #fbbf24; }
+
+/* Amber */
+.dark .bg-amber-100 { background-color: rgb(245 158 11 / 0.16); }
+.dark .bg-amber-50\/70 { background-color: rgb(245 158 11 / 0.11); }
+.dark .hover\:bg-amber-50\/60:hover { background-color: rgb(245 158 11 / 0.12); }
+
+/* Rose (incl. bg-rose-50/40 — the insight-hint / calendar-cell tint) */
+.dark .bg-rose-50\/40 { background-color: rgb(244 63 94 / 0.09); }
+.dark .bg-rose-50\/50 { background-color: rgb(244 63 94 / 0.11); }
+.dark .ring-rose-100 { --tw-ring-color: rgb(244 63 94 / 0.3); }
+.dark .ring-rose-200 { --tw-ring-color: rgb(244 63 94 / 0.38); }
+.dark .from-rose-300 { --tw-gradient-from: rgb(244 63 94 / 0.4); }
+.dark .to-rose-200 { --tw-gradient-to: rgb(244 63 94 / 0.12); }
+
+/* Orange (AI/habit chips, event icons) */
+.dark .bg-orange-50 { background-color: rgb(249 115 22 / 0.12); }
+.dark .bg-orange-100 { background-color: rgb(249 115 22 / 0.16); }
+.dark .text-orange-800 { color: #fdba74; }
+.dark .border-orange-100 { border-color: rgb(249 115 22 / 0.25); }
+.dark .border-orange-200 { border-color: rgb(249 115 22 / 0.32); }
+
+/* Sky */
+.dark .bg-sky-50 { background-color: rgb(56 189 248 / 0.12); }
+.dark .text-sky-600 { color: #38bdf8; }
+.dark .border-sky-200 { border-color: rgb(56 189 248 / 0.3); }
+.dark .hover\:bg-sky-50:hover { background-color: rgb(56 189 248 / 0.14); }
+.dark .hover\:text-sky-800:hover { color: #7dd3fc; }
+
+/* Misc */
+.dark .bg-emerald-400\/70 { background-color: rgb(16 185 129 / 0.5); }
+.dark .aria-selected\:bg-amber-50[aria-selected='true'] { background-color: rgb(245 158 11 / 0.12); }
+
+/*
+ * Restore border-s-* accent strips. The border-stone-100/200 overrides above use
+ * the `border-color` SHORTHAND, which resets border-inline-start-color too —
+ * without these longhand restores the Insight/Warning/Important/Suggestion
+ * strips (BRD §28) and the reminder accent rows would render invisible in dark.
+ */
+.dark .border-s-amber-500 { border-inline-start-color: #f59e0b; }
+.dark .border-s-emerald-500 { border-inline-start-color: #10b981; }
+.dark .border-s-rose-500 { border-inline-start-color: #f43f5e; }
+.dark .border-s-rose-700 { border-inline-start-color: #e11d48; }
+.dark .border-s-stone-300 { border-inline-start-color: #57534e; }
+
 /* Dark selection + scrollbar */
 .dark ::selection {
   background-color: rgb(245 158 11 / 0.35);
@@ -354,3 +415,5 @@ html.dark {
 .sekretir-float {
   animation: sekretir-float 3.2s ease-in-out infinite;
 }
+
+/* r12 dark-mode accent restore */

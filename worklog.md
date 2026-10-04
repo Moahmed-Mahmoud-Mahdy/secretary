@@ -504,3 +504,27 @@ Task: User request (Egyptian Arabic): "عاوزك تضيف ان انا اقدر 
 - ScrollArea is only used in the notifications popover — the fix pattern did not need to be applied elsewhere (grep confirmed single usage).
 - agent-browser session left in light mode, viewport 1280×800, popover closed (clean state).
 - Next round suggestions (carried over): per-item highlight after search deep-link; one-click budget copy chip inside BUDGET_REMINDER notifications; notification "mark read on scroll"; TTS Arabic voice comparison; PWA shell.
+---
+Task ID: cron-20261004-12
+Agent: main (Z.ai Code) — webDevReview round 12
+Task: User request (Egyptian Arabic): fix dark-mode colors for tinted utility classes, citing example `border border-stone-100 border-s-4 text-stone-700 border-s-rose-500 bg-rose-50/40`
+
+## Current project status
+- STABLE. Dark-mode color system audited class-by-class and completed; verified in-browser across home/calendar/notifications/settings in dark + light regression.
+
+## This round: completed modifications & verification
+1. **Root cause 1 — opacity-variant gap**: Tailwind generates a DISTINCT class per opacity modifier (`bg-rose-50/40` is NOT `bg-rose-50`), and the `.dark` override map in globals.css only covered base classes. Extracted the full inventory of color utilities from components (rg token extraction) and diffed vs globals.css selectors. Added "Extended dark coverage (r12)" block: bg-rose-50/40 + /50 (user's example — WARNING hint cards + calendar cells), bg-stone-50/40 + /50, bg-amber-50/70, bg-amber-100 (notification 💰🪙💸 chips, finance badges, settings/search icons), bg-orange-50/100 (AI 🤖 + habit 🔥 chips, event icon), bg-sky-50 (settings export card), text-sky-600, text-orange-800, hover:bg-sky-50, hover:text-sky-800, hover:bg-amber-50/60, border-orange-100/200, border-sky-200, border-stone-50/300, bg-stone-300 (timeline done-dot), text-stone-200 (footer separators), ring-white (home timeline dot cutout), ring-rose-100/200, from-rose-300/to-rose-200 (rose divider gradient), group-hover:bg-white, group-hover:text-amber-600, bg-emerald-400/70, aria-selected:bg-amber-50 (search palette cmdk row).
+2. **Root cause 2 — shorthand kill (sneaky)**: `.dark .border-stone-100 { border-color: … }` uses the border-color SHORTHAND, which silently resets border-inline-start-color — so ALL `border-s-*` accent strips (the four BRD §28 notification kinds Insight/Warning/Important/Suggestion + reminder rows) were rendering invisible white/6% in dark mode even in earlier "verified" rounds. Fixed with explicit longhand restores placed AFTER the shorthand overrides: border-s-amber-500/emerald-500/rose-500/rose-700/stone-300.
+3. **Verification (agent-browser, computed styles = ground truth)**:
+   - Synthetic-element probes in dark: all five strips now return exact accent colors (amber 245,158,11 / rose 244,63,94 / deep-rose 225,29,72 / emerald 16,185,129 / stone 87,83,78); warning card bg = rgba(244,63,94,0.09).
+   - Notifications chips: amber-100 → rgba(245,158,11,0.16), orange-100 → rgba(249,115,22,0.16) (were bright cream/orange).
+   - Settings sky chip rgba(56,189,248,0.12); calendar week cells dark-tinted; home timeline dot ring cutout correct.
+   - Light regression: strips still raw Tailwind colors, pastel tints intact (restores are .dark-scoped).
+   - Screenshots: qa-r12-dark-home.png, qa-r12-dark-hints.png (the money shot — 4 hint cards with correct strips), qa-r12-dark-calendar.png, qa-r12-dark-month.png, qa-r12-dark-settings.png, qa-r12-dark-notifs.png, qa-r12-light-hints.png.
+4. **Dev-infra note**: Turbopack watcher missed the second consecutive globals.css edit — served CSS stayed stale for ~3 min (page reload fetched old chunk). Appending a comment line to force an mtime/content change kicked the rebuild. If a CSS edit "doesn't apply", verify the served chunk content (curl) before debugging the cascade; worst case restart with `nohup bun run dev > dev.log 2>&1 &`.
+5. lint clean; dev.log clean; browser closed in light mode (session state tidy).
+
+## Unresolved issues / risks & next priorities
+- Any FUTURE component using a new light-palette class must get a matching `.dark` override in globals.css (or inline dark: variants) — the override map is the established pattern (unlayered rules beat layered utilities).
+- `ring-white` restore assumes dots sit on #1c1917 cards (true everywhere today).
+- Next round suggestions (carried): per-item highlight after search deep-link; one-click budget-copy chip inside BUDGET_REMINDER notification; notification mark-read-on-scroll; TTS Arabic voice comparison; weekly completions mini-chart on home.
