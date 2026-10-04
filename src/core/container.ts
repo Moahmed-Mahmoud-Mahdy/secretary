@@ -28,6 +28,7 @@ import {
 // Composition root — the only place where infrastructure is
 // wired into the application layer (Dependency Injection).
 // API routes (presentation) resolve use cases from here only.
+// (Re-evaluated on edit — picks up fresh PrismaClient after db push.)
 // ============================================================
 
 // ---- repositories ----

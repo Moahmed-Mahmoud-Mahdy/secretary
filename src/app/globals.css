@@ -120,11 +120,37 @@
     @apply bg-background text-foreground;
     font-family: 'Cairo', Tahoma, sans-serif;
   }
+  ::selection {
+    background-color: #fef3c7; /* amber-100 */
+    color: #92400e; /* amber-800 */
+  }
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 /* Sekretir additions */
 .font-cairo {
   font-family: 'Cairo', Tahoma, sans-serif;
+}
+
+/* Card list entrance (stagger via inline animation-delay) */
+@keyframes sekretir-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.sekretir-rise {
+  animation: sekretir-rise 0.28s ease-out both;
+}
+
+/* Live tracking chip */
+@keyframes sekretir-ping-soft {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.35); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+.sekretir-live-dot {
+  animation: sekretir-ping-soft 1.6s infinite;
 }
 
 /* Custom thin scrollbar for long lists */

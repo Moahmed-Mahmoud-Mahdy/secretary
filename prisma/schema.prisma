@@ -67,6 +67,10 @@ model Task {
   parentId         String?
   parent           Task?     @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
   subtasks         Task[]    @relation("TaskSubtasks")
+  // Time tracking (BRD §17 personalization): accumulated real work minutes
+  // + the moment the current tracking session started (null = not tracking).
+  actualMinutes    Int       @default(0)
+  trackingStartedAt DateTime?
   completedAt      DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

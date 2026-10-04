@@ -203,10 +203,11 @@ export function ProjectsView({ refreshKey, onAuthError }: ProjectsViewProps) {
         </Card>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
-          {projects.map((p) => (
+          {projects.map((p, idx) => (
             <Card
               key={p.id}
-              className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:border-amber-200 transition-all cursor-pointer"
+              className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:border-amber-200 hover:-translate-y-0.5 transition-all cursor-pointer sekretir-rise"
+              style={{ animationDelay: `${Math.min(idx, 6) * 50}ms` }}
               role="button"
               tabIndex={0}
               onClick={() => openDetail(p.id)}

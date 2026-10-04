@@ -59,6 +59,9 @@ export function serializeTask(
     subtasks: subtasks
       .filter((st) => st.parentId === task.id)
       .map((st) => serializeTask(st)),
+    actualMinutes: task.actualMinutes,
+    trackingStartedAt: task.trackingStartedAt ? task.trackingStartedAt.toISOString() : null,
+    isTracking: task.trackingStartedAt !== null,
     completedAt: task.completedAt ? task.completedAt.toISOString() : null,
     isOverdue: overdue,
     createdAt: task.createdAt.toISOString(),

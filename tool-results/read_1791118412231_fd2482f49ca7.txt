@@ -1,0 +1,704 @@
+     1→'use client';
+     2→
+     3→import { useCallback, useEffect, useMemo, useState } from 'react';
+     4→import {
+     5→  ChevronDown,
+     6→  Loader2,
+     7→  MoreVertical,
+     8→  Pencil,
+     9→  Plus,
+    10→  Timer,
+    11→  Trash2,
+    12→  AlarmClock,
+    13→} from 'lucide-react';
+    14→import { toast } from 'sonner';
+    15→import { Button } from '@/components/ui/button';
+    16→import { Card, CardContent } from '@/components/ui/card';
+    17→import { Checkbox } from '@/components/ui/checkbox';
+    18→import {
+    19→  Dialog,
+    20→  DialogContent,
+    21→  DialogDescription,
+    22→  DialogFooter,
+    23→  DialogHeader,
+    24→  DialogTitle,
+    25→} from '@/components/ui/dialog';
+    26→import {
+    27→  AlertDialog,
+    28→  AlertDialogAction,
+    29→  AlertDialogCancel,
+    30→  AlertDialogContent,
+    31→  AlertDialogDescription,
+    32→  AlertDialogFooter,
+    33→  AlertDialogHeader,
+    34→  AlertDialogTitle,
+    35→} from '@/components/ui/alert-dialog';
+    36→import {
+    37→  DropdownMenu,
+    38→  DropdownMenuContent,
+    39→  DropdownMenuItem,
+    40→  DropdownMenuTrigger,
+    41→} from '@/components/ui/dropdown-menu';
+    42→import { Input } from '@/components/ui/input';
+    43→import { Label } from '@/components/ui/label';
+    44→import {
+    45→  Select,
+    46→  SelectContent,
+    47→  SelectItem,
+    48→  SelectTrigger,
+    49→  SelectValue,
+    50→} from '@/components/ui/select';
+    51→import { Skeleton } from '@/components/ui/skeleton';
+    52→import { Textarea } from '@/components/ui/textarea';
+    53→import {
+    54→  apiErrorMessage,
+    55→  endpoints,
+    56→  isAuthError,
+    57→  type Priority,
+    58→  type Recurrence,
+    59→  type TaskDTO,
+    60→} from '@/lib/sekretir/api';
+    61→import { PRIORITY_META, PRIORITY_OPTIONS, RECURRENCE_OPTIONS, RECURRENCE_LABELS } from '@/lib/sekretir/constants';
+    62→import {
+    63→  buildIso,
+    64→  fmtDeadline,
+    65→  fromLocalInputValue,
+    66→  relativeDay,
+    67→  todayKey,
+    68→  toLocalInputValue,
+    69→} from '@/lib/sekretir/date-utils';
+    70→import { cn } from '@/lib/utils';
+    71→
+    72→type Filter = 'all' | 'today' | 'overdue' | 'done';
+    73→
+    74→const FILTERS: { id: Filter; label: string }[] = [
+    75→  { id: 'all', label: 'الكل' },
+    76→  { id: 'today', label: 'النهارده' },
+    77→  { id: 'overdue', label: 'متأخرة' },
+    78→  { id: 'done', label: 'خلصت' },
+    79→];
+    80→
+    81→const PRIORITY_ORDER: Record<Priority, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+    82→
+    83→function sortTasks(tasks: TaskDTO[]): TaskDTO[] {
+    84→  return [...tasks].sort((a, b) => {
+    85→    if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+    86→    const da = a.deadline ?? '9999';
+    87→    const db = b.deadline ?? '9999';
+    88→    if (da !== db) return da < db ? -1 : 1;
+    89→    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+    90→  });
+    91→}
+    92→
+    93→interface TasksViewProps {
+    94→  refreshKey: number;
+    95→  onAuthError: () => void;
+    96→}
+    97→
+    98→export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
+    99→  const [tasks, setTasks] = useState<TaskDTO[]>([]);
+   100→  const [loading, setLoading] = useState(true);
+   101→  const [filter, setFilter] = useState<Filter>('all');
+   102→
+   103→  // quick add
+   104→  const [quickTitle, setQuickTitle] = useState('');
+   105→  const [quickTime, setQuickTime] = useState('');
+   106→  const [adding, setAdding] = useState(false);
+   107→
+   108→  // expanded task ids
+   109→  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+   110→  const [subtaskDraft, setSubtaskDraft] = useState<Record<string, string>>({});
+   111→  const [addingSubtaskFor, setAddingSubtaskFor] = useState<string | null>(null);
+   112→
+   113→  // edit dialog
+   114→  const [editTask, setEditTask] = useState<TaskDTO | null>(null);
+   115→  const [editForm, setEditForm] = useState({
+   116→    title: '',
+   117→    priority: 'MEDIUM' as Priority,
+   118→    deadline: '',
+   119→    estimatedMinutes: '',
+   120→    description: '',
+   121→    recurrence: '',
+   122→  });
+   123→  const [savingEdit, setSavingEdit] = useState(false);
+   124→
+   125→  // delete dialog
+   126→  const [deleteTask, setDeleteTask] = useState<TaskDTO | null>(null);
+   127→  const [deleting, setDeleting] = useState(false);
+   128→
+   129→  const load = useCallback(async () => {
+   130→    try {
+   131→      const { tasks: t } = await endpoints.tasks();
+   132→      setTasks(t);
+   133→    } catch (e) {
+   134→      if (isAuthError(e)) {
+   135→        onAuthError();
+   136→        return;
+   137→      }
+   138→      toast.error(apiErrorMessage(e));
+   139→    } finally {
+   140→      setLoading(false);
+   141→    }
+   142→  }, [onAuthError]);
+   143→
+   144→  useEffect(() => {
+   145→    void load();
+   146→  }, [load, refreshKey]);
+   147→
+   148→  const visible = useMemo(() => {
+   149→    const today = todayKey();
+   150→    let list = tasks;
+   151→    if (filter === 'done') list = list.filter((t) => t.status === 'COMPLETED');
+   152→    else {
+   153→      list = list.filter((t) => t.status !== 'COMPLETED' && t.status !== 'CANCELLED');
+   154→      if (filter === 'overdue') list = list.filter((t) => t.isOverdue);
+   155→      if (filter === 'today') list = list.filter((t) => t.deadline?.slice(0, 10) === today);
+   156→    }
+   157→    return sortTasks(list);
+   158→  }, [tasks, filter]);
+   159→
+   160→  function upsert(updated: TaskDTO) {
+   161→    setTasks((prev) =>
+   162→      prev.map((t) => {
+   163→        if (t.id === updated.id) return { ...updated, subtasks: updated.subtasks ?? t.subtasks };
+   164→        // subtask update → patch parent
+   165→        if (t.subtasks?.some((s) => s.id === updated.id)) {
+   166→          return { ...t, subtasks: t.subtasks.map((s) => (s.id === updated.id ? updated : s)) };
+   167→        }
+   168→        return t;
+   169→      })
+   170→    );
+   171→  }
+   172→
+   173→  async function toggleTask(task: TaskDTO) {
+   174→    const completing = task.status !== 'COMPLETED';
+   175→    // optimistic
+   176→    setTasks((prev) =>
+   177→      prev.map((t) =>
+   178→        t.id === task.id
+   179→          ? {
+   180→              ...t,
+   181→              status: completing ? 'COMPLETED' : 'TODO',
+   182→              completedAt: completing ? new Date().toISOString() : null,
+   183→            }
+   184→          : t
+   185→      )
+   186→    );
+   187→    try {
+   188→      const { task: updated } = await endpoints.updateTask(task.id, {
+   189→        status: completing ? 'COMPLETED' : 'TODO',
+   190→      });
+   191→      upsert(updated);
+   192→      if (completing) toast.success('برافو! ✅');
+   193→    } catch (e) {
+   194→      toast.error(apiErrorMessage(e));
+   195→      upsert(task);
+   196→    }
+   197→  }
+   198→
+   199→  async function quickAdd() {
+   200→    const title = quickTitle.trim();
+   201→    if (!title || adding) return;
+   202→    setAdding(true);
+   203→    try {
+   204→      const deadline = quickTime ? buildIso(todayKey(), quickTime) : null;
+   205→      const { task } = await endpoints.createTask({ title, deadline });
+   206→      setTasks((prev) => [...prev, task]);
+   207→      setQuickTitle('');
+   208→      setQuickTime('');
+   209→      toast.success('ضفتها ✅');
+   210→    } catch (e) {
+   211→      toast.error(apiErrorMessage(e));
+   212→    } finally {
+   213→      setAdding(false);
+   214→    }
+   215→  }
+   216→
+   217→  function toggleExpand(id: string) {
+   218→    setExpanded((prev) => {
+   219→      const next = new Set(prev);
+   220→      if (next.has(id)) next.delete(id);
+   221→      else next.add(id);
+   222→      return next;
+   223→    });
+   224→  }
+   225→
+   226→  async function addSubtask(parent: TaskDTO) {
+   227→    const title = (subtaskDraft[parent.id] ?? '').trim();
+   228→    if (!title || addingSubtaskFor === parent.id) return;
+   229→    setAddingSubtaskFor(parent.id);
+   230→    try {
+   231→      await endpoints.createTask({ title, parentId: parent.id });
+   232→      await load();
+   233→      setSubtaskDraft((prev) => ({ ...prev, [parent.id]: '' }));
+   234→      setExpanded((prev) => new Set(prev).add(parent.id));
+   235→    } catch (e) {
+   236→      toast.error(apiErrorMessage(e));
+   237→    } finally {
+   238→      setAddingSubtaskFor(null);
+   239→    }
+   240→  }
+   241→
+   242→  async function toggleSubtask(sub: TaskDTO) {
+   243→    const completing = sub.status !== 'COMPLETED';
+   244→    try {
+   245→      const { task: updated } = await endpoints.updateTask(sub.id, {
+   246→        status: completing ? 'COMPLETED' : 'TODO',
+   247→      });
+   248→      upsert(updated);
+   249→      if (completing) toast.success('برافو! ✅');
+   250→    } catch (e) {
+   251→      toast.error(apiErrorMessage(e));
+   252→    }
+   253→  }
+   254→
+   255→  function openEdit(task: TaskDTO) {
+   256→    setEditForm({
+   257→      title: task.title,
+   258→      priority: task.priority,
+   259→      deadline: toLocalInputValue(task.deadline),
+   260→      estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
+   261→      description: task.description ?? '',
+   262→      recurrence: task.recurrence ?? '',
+   263→    });
+   264→    setEditTask(task);
+   265→  }
+   266→
+   267→  async function saveEdit() {
+   268→    if (!editTask || savingEdit) return;
+   269→    if (!editForm.title.trim()) {
+   270→      toast.error('العنوان مينفعش يكون فاضي');
+   271→      return;
+   272→    }
+   273→    setSavingEdit(true);
+   274→    try {
+   275→      const { task: updated } = await endpoints.updateTask(editTask.id, {
+   276→        title: editForm.title.trim(),
+   277→        priority: editForm.priority,
+   278→        deadline: fromLocalInputValue(editForm.deadline),
+   279→        estimatedMinutes: editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null,
+   280→        description: editForm.description.trim() || null,
+   281→        recurrence:
+   282→          editForm.recurrence && editForm.recurrence !== 'none'
+   283→            ? (editForm.recurrence as Recurrence)
+   284→            : null,
+   285→      });
+   286→      upsert(updated);
+   287→      setEditTask(null);
+   288→      toast.success('اتعدلت ✅');
+   289→    } catch (e) {
+   290→      toast.error(apiErrorMessage(e));
+   291→    } finally {
+   292→      setSavingEdit(false);
+   293→    }
+   294→  }
+   295→
+   296→  async function confirmDelete() {
+   297→    if (!deleteTask || deleting) return;
+   298→    setDeleting(true);
+   299→    try {
+   300→      await endpoints.deleteTask(deleteTask.id);
+   301→      setTasks((prev) => prev.filter((t) => t.id !== deleteTask.id));
+   302→      setDeleteTask(null);
+   303→      toast.success('تمسحت ✅');
+   304→    } catch (e) {
+   305→      toast.error(apiErrorMessage(e));
+   306→    } finally {
+   307→      setDeleting(false);
+   308→    }
+   309→  }
+   310→
+   311→  return (
+   312→    <div className="space-y-4">
+   313→      <div className="flex items-center justify-between flex-wrap gap-2">
+   314→        <h1 className="text-xl font-extrabold text-stone-900">المهام</h1>
+   315→        <div className="flex gap-1.5 flex-wrap" role="tablist" aria-label="فلترة المهام">
+   316→          {FILTERS.map((f) => (
+   317→            <button
+   318→              key={f.id}
+   319→              type="button"
+   320→              role="tab"
+   321→              aria-selected={filter === f.id}
+   322→              onClick={() => setFilter(f.id)}
+   323→              className={cn(
+   324→                'px-3 py-1.5 rounded-full text-xs font-bold transition-colors',
+   325→                filter === f.id
+   326→                  ? 'bg-amber-600 text-white'
+   327→                  : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-100'
+   328→              )}
+   329→            >
+   330→              {f.label}
+   331→            </button>
+   332→          ))}
+   333→        </div>
+   334→      </div>
+   335→
+   336→      {/* Quick add */}
+   337→      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   338→        <CardContent className="p-3">
+   339→          <div className="flex items-center gap-2">
+   340→            <Input
+   341→              value={quickTitle}
+   342→              onChange={(e) => setQuickTitle(e.target.value)}
+   343→              onKeyDown={(e) => {
+   344→                if (e.key === 'Enter') quickAdd();
+   345→              }}
+   346→              placeholder="ضيف مهمة سريعة... مثلاً: أذاكر ساعة"
+   347→              className="border-0 shadow-none focus-visible:ring-0 text-sm bg-transparent"
+   348→              aria-label="عنوان المهمة الجديدة"
+   349→            />
+   350→            <Input
+   351→              type="time"
+   352→              value={quickTime}
+   353→              onChange={(e) => setQuickTime(e.target.value)}
+   354→              className="w-28 shrink-0 text-sm"
+   355→              aria-label="معاد اختياري النهارده"
+   356→            />
+   357→            <Button
+   358→              size="icon"
+   359→              onClick={quickAdd}
+   360→              disabled={adding || !quickTitle.trim()}
+   361→              className="size-9 rounded-full bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+   362→              aria-label="ضيف المهمة"
+   363→            >
+   364→              {adding ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+   365→            </Button>
+   366→          </div>
+   367→        </CardContent>
+   368→      </Card>
+   369→
+   370→      {/* List */}
+   371→      {loading ? (
+   372→        <div className="space-y-3">
+   373→          {[0, 1, 2].map((i) => (
+   374→            <Skeleton key={i} className="h-20 rounded-2xl" />
+   375→          ))}
+   376→        </div>
+   377→      ) : visible.length === 0 ? (
+   378→        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   379→          <CardContent className="py-12 text-center">
+   380→            <p className="text-4xl mb-3" aria-hidden>📋</p>
+   381→            <p className="font-bold text-stone-700">مفيش مهام لسه</p>
+   382→            <p className="text-sm text-stone-400 mt-1">
+   383→              قولي عايز تعمل إيه وأنا أظبطها 😄
+   384→            </p>
+   385→          </CardContent>
+   386→        </Card>
+   387→      ) : (
+   388→        <ul className="space-y-3">
+   389→          {visible.map((task) => {
+   390→            const done = task.status === 'COMPLETED';
+   391→            const isOpen = expanded.has(task.id);
+   392→            return (
+   393→              <li key={task.id}>
+   394→                <Card
+   395→                  className={cn(
+   396→                    'bg-white border rounded-2xl shadow-sm transition-colors',
+   397→                    task.isOverdue ? 'border-rose-200' : 'border-stone-200'
+   398→                  )}
+   399→                >
+   400→                  <CardContent className="p-3 sm:p-4">
+   401→                    <div className="flex items-start gap-3">
+   402→                      <Checkbox
+   403→                        checked={done}
+   404→                        onCheckedChange={() => toggleTask(task)}
+   405→                        className="mt-1 size-5 shrink-0 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+   406→                        aria-label={done ? 'ارجع المهمة' : 'خلصت المهمة'}
+   407→                      />
+   408→                      <div className="flex-1 min-w-0">
+   409→                        <p
+   410→                          className={cn(
+   411→                            'font-semibold text-sm sm:text-base break-words',
+   412→                            done ? 'line-through text-stone-400' : 'text-stone-800'
+   413→                          )}
+   414→                        >
+   415→                          {task.title}
+   416→                        </p>
+   417→
+   418→                        {task.description ? (
+   419→                          <p className="text-xs text-stone-500 mt-1 line-clamp-2">{task.description}</p>
+   420→                        ) : null}
+   421→
+   422→                        <div className="flex items-center gap-1.5 flex-wrap mt-2">
+   423→                          <span
+   424→                            className={cn(
+   425→                              'text-[10px] font-bold px-2 py-0.5 rounded-full',
+   426→                              PRIORITY_META[task.priority].badge
+   427→                            )}
+   428→                          >
+   429→                            {PRIORITY_META[task.priority].label}
+   430→                          </span>
+   431→                          {task.projectName ? (
+   432→                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">
+   433→                              📁 {task.projectName}
+   434→                            </span>
+   435→                          ) : null}
+   436→                          {task.estimatedMinutes ? (
+   437→                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 tabular-nums">
+   438→                              ⏱ {task.estimatedMinutes}د
+   439→                            </span>
+   440→                          ) : null}
+   441→                          {task.deadline ? (
+   442→                            <span
+   443→                              className={cn(
+   444→                                'text-[10px] font-bold px-2 py-0.5 rounded-full tabular-nums',
+   445→                                task.isOverdue && !done
+   446→                                  ? 'bg-rose-100 text-rose-700'
+   447→                                  : 'bg-stone-100 text-stone-600'
+   448→                              )}
+   449→                            >
+   450→                              ⏰ {fmtDeadline(task.deadline)}
+   451→                            </span>
+   452→                          ) : null}
+   453→                          {task.recurrence ? (
+   454→                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">
+   455→                              🔁 {RECURRENCE_LABELS[task.recurrence]}
+   456→                            </span>
+   457→                          ) : null}
+   458→                        </div>
+   459→
+   460→                        {task.subtasks && task.subtasks.length > 0 ? (
+   461→                          <button
+   462→                            type="button"
+   463→                            onClick={() => toggleExpand(task.id)}
+   464→                            className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800"
+   465→                            aria-expanded={isOpen}
+   466→                          >
+   467→                            <ChevronDown className={cn('size-3.5 transition-transform', isOpen && 'rotate-180')} />
+   468→                            مهام فرعية ({task.subtasks.length})
+   469→                          </button>
+   470→                        ) : null}
+   471→
+   472→                        {/* Subtasks */}
+   473→                        {isOpen ? (
+   474→                          <div className="mt-2 ps-3 border-s-2 border-stone-100 space-y-1.5">
+   475→                            {task.subtasks.map((sub) => {
+   476→                              const subDone = sub.status === 'COMPLETED';
+   477→                              return (
+   478→                                <div key={sub.id} className="flex items-center gap-2">
+   479→                                  <Checkbox
+   480→                                    checked={subDone}
+   481→                                    onCheckedChange={() => toggleSubtask(sub)}
+   482→                                    className="size-4 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+   483→                                    aria-label={subDone ? 'ارجع المهمة الفرعية' : 'خلصت المهمة الفرعية'}
+   484→                                  />
+   485→                                  <span
+   486→                                    className={cn(
+   487→                                      'text-xs',
+   488→                                      subDone ? 'line-through text-stone-400' : 'text-stone-700'
+   489→                                    )}
+   490→                                  >
+   491→                                    {sub.title}
+   492→                                  </span>
+   493→                                </div>
+   494→                              );
+   495→                            })}
+   496→                            <div className="flex items-center gap-1.5 pt-1">
+   497→                              <Input
+   498→                                value={subtaskDraft[task.id] ?? ''}
+   499→                                onChange={(e) =>
+   500→                                  setSubtaskDraft((prev) => ({ ...prev, [task.id]: e.target.value }))
+   501→                                }
+   502→                                onKeyDown={(e) => {
+   503→                                  if (e.key === 'Enter') addSubtask(task);
+   504→                                }}
+   505→                                placeholder="ضيف مهمة فرعية..."
+   506→                                className="h-7 text-xs bg-stone-50"
+   507→                              />
+   508→                              <Button
+   509→                                size="icon"
+   510→                                variant="ghost"
+   511→                                className="size-7 text-amber-700 hover:bg-amber-50"
+   512→                                onClick={() => addSubtask(task)}
+   513→                                disabled={addingSubtaskFor === task.id || !(subtaskDraft[task.id] ?? '').trim()}
+   514→                                aria-label="ضيف المهمة الفرعية"
+   515→                              >
+   516→                                {addingSubtaskFor === task.id ? (
+   517→                                  <Loader2 className="size-3.5 animate-spin" />
+   518→                                ) : (
+   519→                                  <Plus className="size-3.5" />
+   520→                                )}
+   521→                              </Button>
+   522→                            </div>
+   523→                          </div>
+   524→                        ) : null}
+   525→                        {task.subtasks?.length === 0 ? (
+   526→                          <button
+   527→                            type="button"
+   528→                            onClick={() => toggleExpand(task.id)}
+   529→                            className="mt-2 text-xs font-semibold text-stone-400 hover:text-amber-700 flex items-center gap-1"
+   530→                            aria-expanded={isOpen}
+   531→                          >
+   532→                            <ChevronDown className={cn('size-3.5 transition-transform', isOpen && 'rotate-180')} />
+   533→                            ضيف مهام فرعية
+   534→                          </button>
+   535→                        ) : null}
+   536→                      </div>
+   537→
+   538→                      <DropdownMenu>
+   539→                        <DropdownMenuTrigger asChild>
+   540→                          <Button
+   541→                            variant="ghost"
+   542→                            size="icon"
+   543→                            className="size-8 shrink-0 text-stone-400 hover:text-stone-700"
+   544→                            aria-label="خيارات المهمة"
+   545→                          >
+   546→                            <MoreVertical className="size-4" />
+   547→                          </Button>
+   548→                        </DropdownMenuTrigger>
+   549→                        <DropdownMenuContent align="end" className="w-40">
+   550→                          <DropdownMenuItem onClick={() => openEdit(task)}>
+   551→                            <Pencil className="size-4" />
+   552→                            تعديل
+   553→                          </DropdownMenuItem>
+   554→                          <DropdownMenuItem
+   555→                            onClick={() => setDeleteTask(task)}
+   556→                            className="text-rose-600 focus:text-rose-700"
+   557→                          >
+   558→                            <Trash2 className="size-4" />
+   559→                            امسح
+   560→                          </DropdownMenuItem>
+   561→                        </DropdownMenuContent>
+   562→                      </DropdownMenu>
+   563→                    </div>
+   564→                  </CardContent>
+   565→                </Card>
+   566→              </li>
+   567→            );
+   568→          })}
+   569→        </ul>
+   570→      )}
+   571→
+   572→      {/* Edit dialog */}
+   573→      <Dialog open={editTask !== null} onOpenChange={(o) => !o && setEditTask(null)}>
+   574→        <DialogContent className="rounded-2xl max-h-[90dvh] overflow-y-auto sekretir-scroll">
+   575→          <DialogHeader>
+   576→            <DialogTitle>عدّل المهمة ✏️</DialogTitle>
+   577→            <DialogDescription>غيّر اللي عايزه واحفظ.</DialogDescription>
+   578→          </DialogHeader>
+   579→          <div className="space-y-4 py-1">
+   580→            <div className="space-y-2">
+   581→              <Label htmlFor="edit-title">العنوان</Label>
+   582→              <Input
+   583→                id="edit-title"
+   584→                value={editForm.title}
+   585→                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+   586→              />
+   587→            </div>
+   588→            <div className="grid grid-cols-2 gap-3">
+   589→              <div className="space-y-2">
+   590→                <Label>الأولوية</Label>
+   591→                <Select
+   592→                  value={editForm.priority}
+   593→                  onValueChange={(v) => setEditForm((f) => ({ ...f, priority: v as Priority }))}
+   594→                >
+   595→                  <SelectTrigger className="w-full">
+   596→                    <SelectValue />
+   597→                  </SelectTrigger>
+   598→                  <SelectContent>
+   599→                    {PRIORITY_OPTIONS.map((p) => (
+   600→                      <SelectItem key={p.value} value={p.value}>
+   601→                        {p.label}
+   602→                      </SelectItem>
+   603→                    ))}
+   604→                  </SelectContent>
+   605→                </Select>
+   606→              </div>
+   607→              <div className="space-y-2">
+   608→                <Label htmlFor="edit-estimated">التقدير (بالدقايق)</Label>
+   609→                <Input
+   610→                  id="edit-estimated"
+   611→                  type="number"
+   612→                  min={5}
+   613→                  step={5}
+   614→                  dir="ltr"
+   615→                  value={editForm.estimatedMinutes}
+   616→                  onChange={(e) =>
+   617→                    setEditForm((f) => ({ ...f, estimatedMinutes: e.target.value }))
+   618→                  }
+   619→                  placeholder="مثلاً 60"
+   620→                />
+   621→              </div>
+   622→            </div>
+   623→            <div className="space-y-2">
+   624→              <Label htmlFor="edit-deadline">الموعد النهائي</Label>
+   625→              <Input
+   626→                id="edit-deadline"
+   627→                type="datetime-local"
+   628→                dir="ltr"
+   629→                value={editForm.deadline}
+   630→                onChange={(e) => setEditForm((f) => ({ ...f, deadline: e.target.value }))}
+   631→              />
+   632→            </div>
+   633→            <div className="space-y-2">
+   634→              <Label>التكرار</Label>
+   635→              <Select
+   636→                value={editForm.recurrence}
+   637→                onValueChange={(v) => setEditForm((f) => ({ ...f, recurrence: v }))}
+   638→              >
+   639→                <SelectTrigger className="w-full">
+   640→                  <SelectValue placeholder="من غير تكرار" />
+   641→                </SelectTrigger>
+   642→                <SelectContent>
+   643→                  <SelectItem value="none">من غير تكرار</SelectItem>
+   644→                  {RECURRENCE_OPTIONS.map((r) => (
+   645→                    <SelectItem key={r.value} value={r.value}>
+   646→                      🔁 {r.label}
+   647→                    </SelectItem>
+   648→                  ))}
+   649→                </SelectContent>
+   650→              </Select>
+   651→            </div>
+   652→            <div className="space-y-2">
+   653→              <Label htmlFor="edit-description">وصف</Label>
+   654→              <Textarea
+   655→                id="edit-description"
+   656→                value={editForm.description}
+   657→                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+   658→                placeholder="تفاصيل إضافية (اختياري)"
+   659→                rows={3}
+   660→              />
+   661→            </div>
+   662→          </div>
+   663→          <DialogFooter className="gap-2">
+   664→            <Button variant="outline" onClick={() => setEditTask(null)}>
+   665→              إلغاء
+   666→            </Button>
+   667→            <Button
+   668→              className="bg-amber-600 hover:bg-amber-700 text-white"
+   669→              onClick={saveEdit}
+   670→              disabled={savingEdit}
+   671→            >
+   672→              {savingEdit ? <Loader2 className="size-4 animate-spin" /> : <Timer className="size-4" />}
+   673→              حفظ
+   674→            </Button>
+   675→          </DialogFooter>
+   676→        </DialogContent>
+   677→      </Dialog>
+   678→
+   679→      {/* Delete confirm */}
+   680→      <AlertDialog open={deleteTask !== null} onOpenChange={(o) => !o && setDeleteTask(null)}>
+   681→        <AlertDialogContent className="rounded-2xl">
+   682→          <AlertDialogHeader>
+   683→            <AlertDialogTitle>تمسح المهمة دي؟ 🗑️</AlertDialogTitle>
+   684→            <AlertDialogDescription>
+   685→              «{deleteTask?.title}» هتتمسح خالص ومش هترجع تاني.
+   686→            </AlertDialogDescription>
+   687→          </AlertDialogHeader>
+   688→          <AlertDialogFooter className="gap-2">
+   689→            <AlertDialogCancel>سيبها</AlertDialogCancel>
+   690→            <AlertDialogAction
+   691→              onClick={confirmDelete}
+   692→              disabled={deleting}
+   693→              className="bg-rose-600 hover:bg-rose-700 text-white"
+   694→            >
+   695→              {deleting ? <Loader2 className="size-4 animate-spin" /> : <AlarmClock className="size-4" />}
+   696→              امسح
+   697→            </AlertDialogAction>
+   698→          </AlertDialogFooter>
+   699→        </AlertDialogContent>
+   700→      </AlertDialog>
+   701→    </div>
+   702→  );
+   703→}
+   704→

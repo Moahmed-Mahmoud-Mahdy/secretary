@@ -114,6 +114,25 @@ export class TaskUseCases {
     const updated = await this.tasks.update(userId, id, data);
     if (!updated) throw new NotFoundError('المهمة دي مش موجودة');
 
+    // Completing a tracked task → flush the open session into actualMinutes.
+    if (data.status === 'COMPLETED' && updated.trackingStartedAt) {
+      const elapsedMinutes = Math.max(
+        1,
+        Math.round((nowWall().getTime() - updated.trackingStartedAt.getTime()) / 60_000)
+      );
+      const flushed = await this.tasks.update(userId, id, {
+        actualMinutes: updated.actualMinutes + elapsedMinutes,
+        trackingStartedAt: null,
+      });
+      if (flushed) {
+        // Recurring materialization still applies below on `updated`.
+        if (flushed.recurrence && flushed.parentId === null) {
+          await this.materializeNextRecurrence(userId, flushed);
+        }
+        return serializeTask(flushed);
+      }
+    }
+
     // Recurring task completed → materialize the next instance.
     if (data.status === 'COMPLETED' && updated.recurrence && updated.parentId === null) {
       await this.materializeNextRecurrence(userId, updated);
@@ -125,6 +144,47 @@ export class TaskUseCases {
   async delete(userId: string, id: string): Promise<void> {
     const deleted = await this.tasks.delete(userId, id);
     if (!deleted) throw new NotFoundError('المهمة دي مش موجودة');
+  }
+
+  /**
+   * Time tracking (BRD §17): start a session. Marks the task IN_PROGRESS
+   * and stamps trackingStartedAt so elapsed minutes accumulate on stop.
+   */
+  async startTracking(userId: string, id: string): Promise<TaskDTO> {
+    const existing = await this.tasks.findById(userId, id);
+    if (!existing) throw new NotFoundError('المهمة دي مش موجودة');
+    if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
+      throw new ValidationError('مينفعش تسجل وقت على مهمة خلصانة');
+    }
+    if (existing.trackingStartedAt) return serializeTask(existing);
+    const updated = await this.tasks.update(userId, id, {
+      status: 'IN_PROGRESS',
+      trackingStartedAt: nowWall(),
+      completedAt: null,
+    });
+    if (!updated) throw new NotFoundError('المهمة دي مش موجودة');
+    return serializeTask(updated);
+  }
+
+  /**
+   * Time tracking (BRD §17): stop the open session and accumulate the
+   * elapsed wall-clock minutes into actualMinutes (min 1 minute per session).
+   */
+  async stopTracking(userId: string, id: string): Promise<TaskDTO> {
+    const existing = await this.tasks.findById(userId, id);
+    if (!existing) throw new NotFoundError('المهمة دي مش موجودة');
+    if (!existing.trackingStartedAt) return serializeTask(existing);
+    const now = nowWall();
+    const elapsedMinutes = Math.max(
+      1,
+      Math.round((now.getTime() - existing.trackingStartedAt.getTime()) / 60_000)
+    );
+    const updated = await this.tasks.update(userId, id, {
+      actualMinutes: existing.actualMinutes + elapsedMinutes,
+      trackingStartedAt: null,
+    });
+    if (!updated) throw new NotFoundError('المهمة دي مش موجودة');
+    return serializeTask(updated);
   }
 
   /** Fuzzy-match a spoken/written task name against open tasks (AI flows). */

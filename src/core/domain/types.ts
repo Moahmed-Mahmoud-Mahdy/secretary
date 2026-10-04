@@ -38,6 +38,8 @@ export interface TaskRecord {
   tags: string | null;
   projectId: string | null;
   parentId: string | null;
+  actualMinutes: number;
+  trackingStartedAt: Date | null;
   completedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -150,6 +152,9 @@ export interface TaskDTO {
   projectName?: string | null;
   parentId: string | null;
   subtasks: TaskDTO[];
+  actualMinutes: number;
+  trackingStartedAt: string | null;
+  isTracking: boolean;
   completedAt: string | null;
   isOverdue: boolean;
   createdAt: string;

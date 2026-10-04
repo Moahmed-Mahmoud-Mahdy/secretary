@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowDownCircle,
   ArrowUpCircle,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Pencil,
   Plus,
@@ -45,7 +47,7 @@ import {
   type Recurrence,
 } from '@/lib/sekretir/api';
 import { CATEGORY_META, CATEGORY_OPTIONS, RECURRENCE_OPTIONS, fmtMoney } from '@/lib/sekretir/constants';
-import { fmtDayMonth, relativeDay, todayKey } from '@/lib/sekretir/date-utils';
+import { fmtDayMonth, monthLabel, relativeDay, shiftMonthKey, defaultDateInMonth, todayKey } from '@/lib/sekretir/date-utils';
 import { cn } from '@/lib/utils';
 
 type TxTab = 'expenses' | 'incomes';
@@ -82,7 +84,10 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
   const [incForm, setIncForm] = useState({ amount: '', source: '', date: '' });
   const [addingIncome, setAddingIncome] = useState(false);
 
-  const month = todayKey().slice(0, 7);
+  const [month, setMonth] = useState(todayKey().slice(0, 7));
+  const currentMonth = todayKey().slice(0, 7);
+  const isCurrentMonth = month === currentMonth;
+  const isFutureMonth = month > currentMonth;
 
   const load = useCallback(async () => {
     try {
@@ -213,14 +218,48 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold text-stone-900">الفلوس</h1>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-extrabold text-stone-900">الفلوس</h1>
+          {/* Month navigation (right = back in time, matching calendar) */}
+          <div className="flex items-center gap-0.5 rounded-full border border-stone-200 bg-white px-1 py-0.5">
+            <button
+              type="button"
+              onClick={() => setMonth(shiftMonthKey(month, -1))}
+              className="p-1 rounded-full text-stone-500 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+              aria-label="الشهر اللي فات"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+            <span className="text-xs font-bold text-stone-700 tabular-nums min-w-[88px] text-center">
+              {monthLabel(month)}
+            </span>
+            <button
+              type="button"
+              onClick={() => setMonth(shiftMonthKey(month, 1))}
+              disabled={isFutureMonth}
+              className="p-1 rounded-full text-stone-500 hover:bg-amber-50 hover:text-amber-700 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+              aria-label="الشهر الجاي"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+          </div>
+          {!isCurrentMonth ? (
+            <button
+              type="button"
+              onClick={() => setMonth(currentMonth)}
+              className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-full px-2.5 py-1 transition-colors"
+            >
+              رجوع لحدود النهارده
+            </button>
+          ) : null}
+        </div>
         <div className="flex gap-2">
           <Button
             variant="outline"
             className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 rounded-full"
             onClick={() => {
-              setIncForm({ amount: '', source: '', date: todayKey() });
+              setIncForm({ amount: '', source: '', date: defaultDateInMonth(month) });
               setIncomeOpen(true);
             }}
           >
@@ -231,12 +270,12 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       </div>
 
       {/* Budget card */}
-      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 sekretir-rise">
         <CardContent className="p-4 sm:p-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-stone-800 flex items-center gap-2">
               <Wallet className="size-5 text-amber-600" />
-              ميزانية الشهر
+              ميزانية {monthLabel(month)}
             </h2>
             {editingBudget ? (
               <div className="flex items-center gap-1.5">
@@ -265,7 +304,7 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
                   إلغاء
                 </Button>
               </div>
-            ) : (
+            ) : isCurrentMonth ? (
               <Button
                 variant="ghost"
                 size="sm"
@@ -279,6 +318,8 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
                 <Pencil className="size-3.5" />
                 عدّل
               </Button>
+            ) : (
+              <span className="text-[11px] text-stone-400">ميزانية الشهور اللي فاتت للعرض بس</span>
             )}
           </div>
 
@@ -322,9 +363,16 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
               </p>
             </div>
             <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2 text-center">
-              <p className="text-[10px] text-stone-400">النهارده</p>
-              <p className="text-sm font-extrabold text-rose-600 tabular-nums">
-                {fmtMoney(summary?.spentToday)} ج
+              <p className="text-[10px] text-stone-400">{isCurrentMonth ? 'النهارده' : 'عدد العمليات'}</p>
+              <p
+                className={cn(
+                  'text-sm font-extrabold tabular-nums',
+                  isCurrentMonth ? 'text-rose-600' : 'text-stone-700'
+                )}
+              >
+                {isCurrentMonth
+                  ? `${fmtMoney(summary?.spentToday)} ج`
+                  : (summary?.expenses.length ?? 0)}
               </p>
             </div>
             <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2 text-center">
@@ -515,13 +563,13 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
 
       {/* Floating add expense button */}
       <Button
-        className="fixed bottom-20 md:bottom-6 end-4 md:end-6 z-30 rounded-full bg-amber-600 hover:bg-amber-700 text-white shadow-lg px-5 h-12"
+        className="fixed bottom-20 md:bottom-6 end-4 md:end-6 z-30 rounded-full bg-amber-600 hover:bg-amber-700 text-white shadow-lg px-5 h-12 active:scale-95 transition-transform"
         onClick={() => {
           setExpForm({
             amount: '',
             category: 'FOOD',
             description: '',
-            date: todayKey(),
+            date: defaultDateInMonth(month),
             isRecurring: false,
             recurrence: 'none',
           });

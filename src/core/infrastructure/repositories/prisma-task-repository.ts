@@ -17,6 +17,8 @@ interface TaskRow {
   tags: string | null;
   projectId: string | null;
   parentId: string | null;
+  actualMinutes: number;
+  trackingStartedAt: Date | null;
   completedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -75,6 +77,8 @@ export class PrismaTaskRepository implements ITaskRepository {
         tags: data.tags,
         projectId: data.projectId,
         completedAt: data.completedAt,
+        actualMinutes: data.actualMinutes,
+        trackingStartedAt: data.trackingStartedAt,
       },
     });
     return this.toRecord(updated);
@@ -102,6 +106,8 @@ export class PrismaTaskRepository implements ITaskRepository {
       tags: t.tags,
       projectId: t.projectId,
       parentId: t.parentId,
+      actualMinutes: t.actualMinutes,
+      trackingStartedAt: t.trackingStartedAt,
       completedAt: t.completedAt,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,

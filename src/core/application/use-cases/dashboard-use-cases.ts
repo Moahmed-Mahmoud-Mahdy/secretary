@@ -307,6 +307,7 @@ function buildPersonalizationSnapshot(tasks: TaskRecord[], now: Date): {
   completedLast7: number;
   completedLast14: number;
   chronicOverdue: { id: string; title: string; daysLate: number }[];
+  durationSamples: { title: string; estimatedMinutes: number; actualMinutes: number }[];
 } {
   const completedByHour = new Array<number>(24).fill(0);
   for (const task of tasks) {
@@ -332,5 +333,19 @@ function buildPersonalizationSnapshot(tasks: TaskRecord[], now: Date): {
       title: t.title,
       daysLate: Math.max(1, Math.floor((now.getTime() - (t.deadline?.getTime() ?? now.getTime())) / 86_400_000)),
     }));
-  return { completedByHour, completedLast7, completedLast14, chronicOverdue };
+  const durationSamples = tasks
+    .filter(
+      (t) =>
+        t.completedAt !== null &&
+        t.parentId === null &&
+        now.getTime() - t.completedAt.getTime() <= 30 * 86_400_000 &&
+        (t.estimatedMinutes ?? 0) > 0 &&
+        t.actualMinutes > 0
+    )
+    .map((t) => ({
+      title: t.title,
+      estimatedMinutes: t.estimatedMinutes as number,
+      actualMinutes: t.actualMinutes,
+    }));
+  return { completedByHour, completedLast7, completedLast14, chronicOverdue, durationSamples };
 }

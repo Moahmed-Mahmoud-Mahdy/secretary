@@ -130,9 +130,13 @@ export class FinanceUseCases {
     const budgetAmount = budget ?? user?.monthlyBudget ?? null;
 
     const dayKeyToday = now.toISOString().slice(0, 10);
-    const spentToday = expenses
-      .filter((e) => e.date.toISOString().slice(0, 10) === dayKeyToday)
-      .reduce((sum, e) => sum + e.amount, 0);
+    const spentToday =
+      monthStart <= now && now <= monthEnd
+        ? expenses
+            .filter((e) => e.date.toISOString().slice(0, 10) === dayKeyToday)
+            .reduce((sum, e) => sum + e.amount, 0)
+        : 0;
+    const isCurrentMonth = monthStart <= now && now <= monthEnd;
 
     const byCategoryMap = new Map<ExpenseCategory, number>();
     for (const e of expenses) {
@@ -146,8 +150,13 @@ export class FinanceUseCases {
       .filter((e) => e.isRecurring && e.nextDueAt && e.nextDueAt > now && e.nextDueAt <= monthEnd)
       .reduce((sum, e) => sum + e.amount, 0);
 
-    const dayOfMonth = Math.max(1, now.getUTCDate());
-    const dailyAverage = monthSpent / dayOfMonth;
+    // Current month → average over elapsed days; past months → full length;
+    // future months → nothing spent yet.
+    const daysInMonth = monthEnd.getUTCDate();
+    const elapsedDays = isCurrentMonth
+      ? Math.max(1, now.getUTCDate())
+      : daysInMonth;
+    const dailyAverage = isCurrentMonth || monthSpent > 0 ? monthSpent / elapsedDays : 0;
 
     const upcomingRecurring = expenses
       .filter((e) => e.isRecurring && e.nextDueAt && e.nextDueAt > now)

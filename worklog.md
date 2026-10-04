@@ -174,3 +174,28 @@ Task: QA + new features (BRD §11/§17/§28/§43) + styling polish
 - TTS voice (tongtong) is Chinese-optimized; Arabic pronunciation may sound accented — acceptable for MVP, consider testing other voices (xiaochen/kazi) later.
 - Voice-record (ASR) path still untested end-to-end with a real mic (headless limitation); transcribe endpoint shape verified, WAV encoding handled client-side.
 - Next round suggestions: personalization — average estimated vs actual duration per task category (BRD §17 "المهام التي تستغرق وقتًا أطول من المتوقع"); month navigation in finance view; transfers (BRD §19); repeat/recurring expansion test in calendar week view; dark mode consideration.
+
+---
+Task ID: cron-20261004-2
+Agent: main (Z.ai Code) — webDevReview round 2
+Task: Status assessment + browser QA + new features (time-tracking, duration-calibration insights, finance month nav) + styling polish
+
+## Current project status
+- STABLE. Full browser QA passed (desktop 1280px + mobile 390px): home/assistant/tasks/projects/calendar/finance all render correctly; multi-action AI message verified live ("دفعت 60 جنيه أكل، وبكرة عندي اجتماع الساعة 2 العصر" → expense + event), AI QUERY regression OK ("إيه مصاريفي الشهر ده؟" → answered from real data 1110/8000), auth-cookie flow verified via curl.
+- The `filter` 500s in dev.log are HISTORICAL (old code line numbers; current guard at zai-assistant-service.ts:122 is correct). 0 runtime errors this round.
+
+## This round: completed modifications & verification
+1. **Task time-tracking (feeds BRD §17 personalization)** — NEW:
+   - Schema: Task.`actualMinutes` (default 0) + Task.`trackingStartedAt`; `bun run db:push` OK.
+   - Domain: TaskRecord/TaskDTO + serializeTask (`actualMinutes`, `trackingStartedAt`, `isTracking`); use-cases `startTracking`/`stopTracking` (min 1 min/session); auto-flush of open session when completing a tracked task (incl. recurring materialization path).
+   - API: POST `/api/tasks/[id]/track` {action:'start'|'stop'}.
+   - UI: play/stop button on every open task card, live "● شغّال Xد" emerald chip (ticks every 30s), "⏱ فعلي Xد" sky chip after stop, emerald ring on tracking card. E2E verified: start → stop → actual:1 in DB + toasts.
+2. **Duration-calibration insights (BRD §17)** — `durationSamples` (last-30d completions with estimate AND tracked actual) → new rules in personalizationInsights: overall drift ≥30% (≥3 samples) → "شغلك الفعلي بياخد أكتر من تقديراتك بـ X%" (or faster ⚡); single-task outlier ≥2x estimate & ≥45min → suggests breaking it down. Wired via buildPersonalizationSnapshot.
+3. **Finance month navigation** — prev/next month pill (RTL arrows match calendar: right = back), "رجوع لحدود النهارده" chip, future months disabled, budget title shows browsed month, budget edit hidden for past months ("للعرض بس"), "النهارده" tile becomes "عدد العمليات" for past months, add-dialog dates default into browsed month (clamped day). Backend fix: dailyAverage now divides by elapsed days (current month) vs daysInMonth (past months); spentToday forced 0 outside current month. Verified September vs October data render differently and correctly.
+4. **Styling polish [mandatory]**: staggered `sekretir-rise` entrance on task/project cards; `sekretir-live-dot` soft ping for tracking chip; amber `::selection` + smooth scroll; hover-lift unified on task cards; FAB active:scale-95; emerald tracking-card ring.
+5. **Infra note**: Prisma client is externalized — after any future `db:push`, the dev server must be RESTARTED for the new client to load (HMR keeps the old require cache; symptoms: new fields undefined → e.g. isTracking:true ghosts/NaN). Fixed this round by restarting next dev + bumping db.ts global key to `__sekretirPrismaV2`.
+
+## Unresolved issues / risks & next priorities
+- Timer chip shows whole minutes (ticks every 30s) — seconds precision intentionally omitted.
+- ASR voice path still unverified with a real mic (headless env limitation); TTS Arabic accent acceptable (tongtong voice).
+- Next round suggestions: per-task live timer on home timeline; budget copy from last month; habits/recurring check-in view (BRD §16); dark mode; per-category budget limits; weekly plan view (7-day planner grid).

@@ -6,7 +6,9 @@ import {
   Loader2,
   MoreVertical,
   Pencil,
+  Play,
   Plus,
+  Square,
   Timer,
   Trash2,
   AlarmClock,
@@ -80,6 +82,20 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 const PRIORITY_ORDER: Record<Priority, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
+/** Arabic minutes/hours formatter for tracked durations. */
+function fmtMinutes(total: number): string {
+  if (total < 60) return `${total} د`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m === 0 ? `${h} سا` : `${h} سا ${m} د`;
+}
+
+function trackingMinutes(task: TaskDTO): number {
+  if (!task.trackingStartedAt) return task.actualMinutes;
+  const elapsed = Math.floor((Date.now() - new Date(task.trackingStartedAt).getTime()) / 60_000);
+  return task.actualMinutes + Math.max(0, elapsed);
+}
+
 function sortTasks(tasks: TaskDTO[]): TaskDTO[] {
   return [...tasks].sort((a, b) => {
     if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
@@ -99,6 +115,9 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
   const [tasks, setTasks] = useState<TaskDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
+  // live tick so tracking timers update every 30s
+  const [, setTick] = useState(0);
+  const [trackingId, setTrackingId] = useState<string | null>(null);
 
   // quick add
   const [quickTitle, setQuickTitle] = useState('');
@@ -144,6 +163,11 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
+
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   const visible = useMemo(() => {
     const today = todayKey();
@@ -249,6 +273,21 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
       if (completing) toast.success('برافو! ✅');
     } catch (e) {
       toast.error(apiErrorMessage(e));
+    }
+  }
+
+  async function toggleTracking(task: TaskDTO) {
+    if (trackingId) return;
+    setTrackingId(task.id);
+    try {
+      const stopping = task.isTracking;
+      const { task: updated } = await endpoints.trackTask(task.id, stopping ? 'stop' : 'start');
+      upsert(updated);
+      toast.success(stopping ? `اتسجل ${fmtMinutes(updated.actualMinutes)} شغل 👏` : 'يلا بينا… سجّل وقتك ⏱');
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setTrackingId(null);
     }
   }
 
@@ -386,15 +425,16 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
         </Card>
       ) : (
         <ul className="space-y-3">
-          {visible.map((task) => {
+          {visible.map((task, idx) => {
             const done = task.status === 'COMPLETED';
             const isOpen = expanded.has(task.id);
             return (
-              <li key={task.id}>
+              <li key={task.id} className="sekretir-rise" style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
                 <Card
                   className={cn(
-                    'bg-white border rounded-2xl shadow-sm transition-colors',
-                    task.isOverdue ? 'border-rose-200' : 'border-stone-200'
+                    'bg-white border rounded-2xl shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5',
+                    task.isTracking && 'border-emerald-300 ring-1 ring-emerald-100',
+                    !task.isTracking && (task.isOverdue ? 'border-rose-200' : 'border-stone-200')
                   )}
                 >
                   <CardContent className="p-3 sm:p-4">
@@ -436,6 +476,17 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
                           {task.estimatedMinutes ? (
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 tabular-nums">
                               ⏱ {task.estimatedMinutes}د
+                            </span>
+                          ) : null}
+                          {task.actualMinutes > 0 && !task.isTracking ? (
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 tabular-nums">
+                              ⏱ فعلي {fmtMinutes(task.actualMinutes)}
+                            </span>
+                          ) : null}
+                          {task.isTracking ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 tabular-nums inline-flex items-center gap-1.5">
+                              <span className="size-1.5 rounded-full bg-emerald-500 sekretir-live-dot" aria-hidden />
+                              شغّال {fmtMinutes(trackingMinutes(task))}
                             </span>
                           ) : null}
                           {task.deadline ? (
@@ -535,17 +586,42 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
                         ) : null}
                       </div>
 
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {!done ? (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-8 shrink-0 text-stone-400 hover:text-stone-700"
-                            aria-label="خيارات المهمة"
+                            className={cn(
+                              'size-8 transition-colors',
+                              task.isTracking
+                                ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50'
+                                : 'text-stone-400 hover:text-amber-700 hover:bg-amber-50'
+                            )}
+                            onClick={() => toggleTracking(task)}
+                            disabled={trackingId === task.id}
+                            aria-label={task.isTracking ? 'وقّف تسجيل الوقت' : 'سجّل وقت شغلك'}
+                            title={task.isTracking ? 'وقّف التسجيل' : 'ابدأ تسجيل الوقت'}
                           >
-                            <MoreVertical className="size-4" />
+                            {trackingId === task.id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : task.isTracking ? (
+                              <Square className="size-4" />
+                            ) : (
+                              <Play className="size-4" />
+                            )}
                           </Button>
-                        </DropdownMenuTrigger>
+                        ) : null}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 shrink-0 text-stone-400 hover:text-stone-700"
+                              aria-label="خيارات المهمة"
+                            >
+                              <MoreVertical className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
                           <DropdownMenuItem onClick={() => openEdit(task)}>
                             <Pencil className="size-4" />
@@ -559,7 +635,8 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
                             امسح
                           </DropdownMenuItem>
                         </DropdownMenuContent>
-                      </DropdownMenu>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

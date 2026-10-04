@@ -49,6 +49,8 @@ export interface UpdateTaskData {
   tags?: string | null;
   projectId?: string | null;
   completedAt?: Date | null;
+  actualMinutes?: number;
+  trackingStartedAt?: Date | null;
 }
 
 export interface ITaskRepository {

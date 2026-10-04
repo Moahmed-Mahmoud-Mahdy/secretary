@@ -48,6 +48,9 @@ export interface TaskDTO {
   projectName?: string | null;
   parentId: string | null;
   subtasks: TaskDTO[];
+  actualMinutes: number;
+  trackingStartedAt: string | null;
+  isTracking: boolean;
   completedAt: string | null;
   isOverdue: boolean;
   createdAt: string;
@@ -309,6 +312,8 @@ export const endpoints = {
   updateTask: (id: string, body: Record<string, unknown>) =>
     api.patch<{ task: TaskDTO }>(`/api/tasks/${id}`, body),
   deleteTask: (id: string) => api.del<{ deleted: boolean }>(`/api/tasks/${id}`),
+  trackTask: (id: string, action: 'start' | 'stop') =>
+    api.post<{ task: TaskDTO }>(`/api/tasks/${id}/track`, { action }),
 
   projects: () => api.get<{ projects: ProjectDTO[] }>('/api/projects'),
   createProject: (body: Record<string, unknown>) =>

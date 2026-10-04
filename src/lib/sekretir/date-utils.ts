@@ -148,3 +148,30 @@ export function cairoHourNow(): number {
   const hour = parts.find((p) => p.type === 'hour')?.value;
   return Number(hour ?? 0);
 }
+
+/** "أكتوبر 2026" Arabic label for a "YYYY-MM" month key. */
+export function monthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  return `${MONTHS_AR[(m ?? 1) - 1]} ${y}`;
+}
+
+/** Shift a "YYYY-MM" month key by n months (negative = back). */
+export function shiftMonthKey(monthKey: string, n: number): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  const d = new Date(Date.UTC(y, (m ?? 1) - 1 + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Default date inside a browsed month for add-expense/income dialogs:
+ * today when browsing the current month, otherwise the same day-of-month
+ * clamped to the month's length (e.g. 31 مارس → 28 فبراير).
+ */
+export function defaultDateInMonth(monthKey: string): string {
+  const today = todayKey();
+  if (today.slice(0, 7) === monthKey) return today;
+  const [y, m] = monthKey.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const day = Math.min(Number(today.slice(8, 10)), daysInMonth);
+  return `${monthKey}-${String(day).padStart(2, '0')}`;
+}

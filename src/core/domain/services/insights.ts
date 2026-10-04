@@ -188,6 +188,8 @@ export interface PersonalizationSnapshot {
   completedLast7: number;
   completedLast14: number;
   chronicOverdue: { id: string; title: string; daysLate: number }[]; // open tasks > 2 days late
+  /** Completed tasks (last 30d) with BOTH an estimate and real tracked time. */
+  durationSamples: { title: string; estimatedMinutes: number; actualMinutes: number }[];
 }
 
 function hourRangeArabic(hour: number): string {
@@ -245,5 +247,56 @@ export function personalizationInsights(s: PersonalizationSnapshot): InsightDTO[
     );
   }
 
+  // Duration calibration (BRD §17): comparing real tracked time vs estimates.
+  if (s.durationSamples.length >= 3) {
+    const totalEstimated = s.durationSamples.reduce((sum, d) => sum + d.estimatedMinutes, 0);
+    const totalActual = s.durationSamples.reduce((sum, d) => sum + d.actualMinutes, 0);
+    if (totalEstimated > 0) {
+      const ratio = totalActual / totalEstimated;
+      const driftPct = Math.round(Math.abs(ratio - 1) * 100);
+      if (ratio >= 1.3) {
+        out.push(
+          makeInsight(
+            'WARNING',
+            'PLANNING',
+            '⏳',
+            `لاحظت إن شغلك الفعلي بياخد أكتر من تقديراتك بحوالي ${driftPct}% — هزوّد تقديرات مهامك الجاية عشان الخطة تبقى أقرب للواقع.`
+          )
+        );
+      } else if (ratio <= 0.7) {
+        out.push(
+          makeInsight(
+            'INSIGHT',
+            'PLANNING',
+            '⚡',
+            `بتخلص أسرع من تقديراتك بحوالي ${driftPct}% — ممكن نحط مهام أكتر في يومك من غير ضغط.`
+          )
+        );
+      }
+    }
+    // Single-task outlier: real time dwarfed the estimate (≥2x and ≥45 min).
+    const outlier = s.durationSamples.find(
+      (d) => d.actualMinutes >= d.estimatedMinutes * 2 && d.actualMinutes >= 45
+    );
+    if (outlier) {
+      out.push(
+        makeInsight(
+          'INSIGHT',
+          'TASKS',
+          '🔍',
+          `«${outlier.title}» خدت ${fmtDurationArabic(outlier.actualMinutes)} بدل ${fmtDurationArabic(outlier.estimatedMinutes)} المتوقعة — القسمة لخطوات هتخلي التقدير أدق.`
+        )
+      );
+    }
+  }
+
   return out;
+}
+
+function fmtDurationArabic(minutes: number): string {
+  if (minutes < 60) return `${minutes} دقيقة`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return `${h} ${h === 1 ? 'ساعة' : 'ساعات'}`;
+  return `${h} سا ${m} د`;
 }
