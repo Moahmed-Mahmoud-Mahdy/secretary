@@ -39,8 +39,8 @@
 
 ### 1. استنساخ المشروع وتثبيت الحزم
 ```bash
-git clone https://github.com/your-username/sekretir.git
-cd sekretir
+git clone https://github.com/Moahmed-Mahmoud-Mahdy/secretary.git
+cd secretary
 npm install
 ```
 
