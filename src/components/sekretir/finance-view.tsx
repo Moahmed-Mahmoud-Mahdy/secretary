@@ -63,9 +63,12 @@ type TxTab = 'expenses' | 'incomes';
 interface FinanceViewProps {
   refreshKey: number;
   onAuthError: () => void;
+  /** Deep-link: open this month ("YYYY-MM") directly (from global search). */
+  focusMonth?: string | null;
+  onFocusMonthConsumed?: () => void;
 }
 
-export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
+export function FinanceView({ refreshKey, onAuthError, focusMonth, onFocusMonthConsumed }: FinanceViewProps) {
   const [summary, setSummary] = useState<FinanceSummaryDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TxTab>('expenses');
@@ -118,6 +121,14 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
   const currentMonth = todayKey().slice(0, 7);
   const isCurrentMonth = month === currentMonth;
   const isFutureMonth = month > currentMonth;
+
+  // Global-search deep-link: open the requested month once.
+  useEffect(() => {
+    if (focusMonth && /^\d{4}-\d{2}$/.test(focusMonth)) {
+      setMonth(focusMonth);
+      onFocusMonthConsumed?.();
+    }
+  }, [focusMonth]);
 
   const load = useCallback(async () => {
     try {

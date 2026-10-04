@@ -24,6 +24,14 @@ export class PrismaUserRepository implements IUserRepository {
     await this.db.user.update({ where: { id: userId }, data: { monthlyBudget: amount } });
   }
 
+  async update(userId: string, data: { name?: string }): Promise<UserRecord | null> {
+    const user = await this.db.user.update({
+      where: { id: userId },
+      data: { ...(data.name !== undefined ? { name: data.name } : {}) },
+    });
+    return this.toRecord(user);
+  }
+
   private toRecord(user: {
     id: string;
     email: string;

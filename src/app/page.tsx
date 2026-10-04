@@ -10,6 +10,8 @@ import { TasksView } from '@/components/sekretir/tasks-view';
 import { ProjectsView } from '@/components/sekretir/projects-view';
 import { CalendarView } from '@/components/sekretir/calendar-view';
 import { FinanceView } from '@/components/sekretir/finance-view';
+import { SettingsView } from '@/components/sekretir/settings-view';
+import { SearchPalette, type SearchNavigation } from '@/components/sekretir/search-palette';
 import { endpoints, isAuthError, type UserDTO } from '@/lib/sekretir/api';
 import { CHAT_STORAGE_KEY } from '@/lib/sekretir/constants';
 
@@ -19,6 +21,9 @@ export default function Page() {
   const [view, setView] = useState<SekretirView>('home');
   const [refreshKey, setRefreshKey] = useState(0);
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [calendarFocus, setCalendarFocus] = useState<string | null>(null);
+  const [financeFocusMonth, setFinanceFocusMonth] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,13 +58,25 @@ export default function Page() {
     }
   }, []);
 
+  const handleSearchNavigate = useCallback((nav: SearchNavigation) => {
+    if (nav.view === 'calendar' && nav.focusDate) setCalendarFocus(nav.focusDate);
+    if (nav.view === 'finance' && nav.focusMonth) setFinanceFocusMonth(nav.focusMonth);
+    setView(nav.view);
+  }, []);
+
   // Keyboard shortcuts (desktop power users):
   // "/" → jump to المساعد and focus the chat box.
-  // 1..6 → switch between the six views.
-  // Ignored while typing in a field or when a dialog is open.
+  // ⌘K / Ctrl+K → global search palette.
+  // 1..7 → switch between the seven views.
+  // Ignored while typing in a field or when a modal dialog is open.
   useEffect(() => {
     if (!user) return;
     function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((o) => !o);
+        return;
+      }
       const target = e.target as HTMLElement | null;
       const typing =
         !!target &&
@@ -81,7 +98,15 @@ export default function Page() {
         return;
       }
 
-      const order: SekretirView[] = ['home', 'assistant', 'tasks', 'projects', 'calendar', 'finance'];
+      const order: SekretirView[] = [
+        'home',
+        'assistant',
+        'tasks',
+        'projects',
+        'calendar',
+        'finance',
+        'settings',
+      ];
       const idx = Number(e.key);
       if (idx >= 1 && idx <= order.length) {
         setView(order[idx - 1]);
@@ -125,6 +150,7 @@ export default function Page() {
       onNavigate={setView}
       onLogout={handleLogout}
       refreshKey={refreshKey}
+      onOpenSearch={() => setSearchOpen(true)}
     >
       {view === 'home' ? (
         <HomeView refreshKey={refreshKey} onSendToAI={handleSendToAI} onNavigate={setView} />
@@ -141,11 +167,30 @@ export default function Page() {
         <ProjectsView refreshKey={refreshKey} onAuthError={handleLogout} />
       ) : null}
       {view === 'calendar' ? (
-        <CalendarView refreshKey={refreshKey} onAuthError={handleLogout} />
+        <CalendarView
+          refreshKey={refreshKey}
+          onAuthError={handleLogout}
+          focusDate={calendarFocus}
+          onFocusDateConsumed={() => setCalendarFocus(null)}
+        />
       ) : null}
       {view === 'finance' ? (
-        <FinanceView refreshKey={refreshKey} onAuthError={handleLogout} />
+        <FinanceView
+          refreshKey={refreshKey}
+          onAuthError={handleLogout}
+          focusMonth={financeFocusMonth}
+          onFocusMonthConsumed={() => setFinanceFocusMonth(null)}
+        />
       ) : null}
+      {view === 'settings' ? (
+        <SettingsView user={user} onUserUpdated={setUser} onAuthError={handleLogout} />
+      ) : null}
+
+      <SearchPalette
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        onNavigate={handleSearchNavigate}
+      />
     </AppShell>
   );
 }

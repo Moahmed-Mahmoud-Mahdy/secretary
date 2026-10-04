@@ -22,6 +22,8 @@ export interface IUserRepository {
   findById(id: string): Promise<UserRecord | null>;
   create(data: { name: string; email: string; passwordHash: string }): Promise<UserRecord>;
   setMonthlyBudget(userId: string, amount: number | null): Promise<void>;
+  /** Update editable profile fields (name). Returns the fresh record. */
+  update(userId: string, data: { name?: string }): Promise<UserRecord | null>;
 }
 
 export interface CreateTaskData {

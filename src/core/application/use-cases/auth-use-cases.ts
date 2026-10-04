@@ -62,6 +62,25 @@ export class AuthUseCases {
     return serializeUser(user);
   }
 
+  /** Edit the profile (display name) — BRD §30 personal settings. */
+  async updateProfile(userId: string, input: { name?: string }): Promise<UserDTO> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new UnauthorizedError();
+
+    const patch: { name?: string } = {};
+    if (input.name !== undefined) {
+      const name = input.name.trim();
+      if (name.length < 2) throw new ValidationError('الاسم قصير أوي — اكتب اسمك الحقيقي');
+      if (name.length > 40) throw new ValidationError('الاسم طويل أوي — 40 حرف بالحد الأقصى');
+      patch.name = name;
+    }
+    if (Object.keys(patch).length === 0) return serializeUser(user);
+
+    const updated = await this.users.update(userId, patch);
+    if (!updated) throw new UnauthorizedError();
+    return serializeUser(updated);
+  }
+
   private async buildResult(user: UserRecord): Promise<AuthResult> {
     const token = await this.tokens.issue({ sub: user.id, email: user.email });
     return {

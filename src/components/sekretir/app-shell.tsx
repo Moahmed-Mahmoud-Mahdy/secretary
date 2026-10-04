@@ -7,6 +7,8 @@ import {
   FolderKanban,
   Home,
   LogOut,
+  Search,
+  Settings,
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,7 +19,7 @@ import { apiErrorMessage, endpoints, type UserDTO } from '@/lib/sekretir/api';
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
 
-export type SekretirView = 'home' | 'assistant' | 'tasks' | 'projects' | 'calendar' | 'finance';
+export type SekretirView = 'home' | 'assistant' | 'tasks' | 'projects' | 'calendar' | 'finance' | 'settings';
 
 const NAV_ITEMS: { id: SekretirView; label: string; icon: LucideIcon }[] = [
   { id: 'home', label: 'الرئيسية', icon: Home },
@@ -26,6 +28,7 @@ const NAV_ITEMS: { id: SekretirView; label: string; icon: LucideIcon }[] = [
   { id: 'projects', label: 'المشاريع', icon: FolderKanban },
   { id: 'calendar', label: 'التقويم', icon: CalendarDays },
   { id: 'finance', label: 'الفلوس', icon: Wallet },
+  { id: 'settings', label: 'الإعدادات', icon: Settings },
 ];
 
 interface AppShellProps {
@@ -34,10 +37,11 @@ interface AppShellProps {
   onNavigate: (v: SekretirView) => void;
   onLogout: () => void;
   refreshKey: number;
+  onOpenSearch: () => void;
   children: React.ReactNode;
 }
 
-export function AppShell({ user, view, onNavigate, onLogout, refreshKey, children }: AppShellProps) {
+export function AppShell({ user, view, onNavigate, onLogout, refreshKey, onOpenSearch, children }: AppShellProps) {
   async function handleLogout() {
     try {
       await endpoints.logout();
@@ -93,11 +97,38 @@ export function AppShell({ user, view, onNavigate, onLogout, refreshKey, childre
           </nav>
 
           <div className="flex items-center gap-1 mr-auto md:mr-0 md:ms-auto">
-            <span className="hidden sm:block text-sm font-semibold text-stone-700 max-w-28 truncate">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onOpenSearch}
+              className="text-stone-500 hover:text-amber-700 hover:bg-amber-50"
+              aria-label="بحث سريع"
+              title="بحث سريع (⌘K)"
+            >
+              <Search className="size-5" />
+            </Button>
+            <button
+              type="button"
+              onClick={() => onNavigate('settings')}
+              className="hidden sm:block text-sm font-semibold text-stone-700 max-w-28 truncate hover:text-amber-700 transition-colors"
+              title="الإعدادات"
+            >
               {user.name}
-            </span>
+            </button>
             <NotificationsBell refreshKey={refreshKey} />
             <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onNavigate('settings')}
+              className={cn(
+                'text-stone-500 hover:text-amber-700 hover:bg-amber-50 md:hidden',
+                view === 'settings' && 'text-amber-700'
+              )}
+              aria-label="الإعدادات"
+            >
+              <Settings className="size-5" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -122,6 +153,13 @@ export function AppShell({ user, view, onNavigate, onLogout, refreshKey, childre
             |
           </span>
           <kbd className="rounded-md border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-bold text-stone-500 shadow-sm">
+            ⌘K
+          </kbd>{' '}
+          للبحث
+          <span className="mx-2 text-stone-200" aria-hidden>
+            |
+          </span>
+          <kbd className="rounded-md border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-bold text-stone-500 shadow-sm">
             /
           </kbd>{' '}
           للمساعد السريع
@@ -129,19 +167,19 @@ export function AppShell({ user, view, onNavigate, onLogout, refreshKey, childre
             |
           </span>
           <kbd className="rounded-md border border-stone-200 bg-stone-50 px-1.5 py-0.5 text-[10px] font-bold text-stone-500 shadow-sm">
-            1-6
+            1-7
           </kbd>{' '}
           للتنقل
         </p>
       </footer>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav (primary 6 — settings lives in the header) */}
       <nav
         className="sekretir-bottom-nav fixed bottom-0 inset-x-0 z-40 bg-white border-t border-stone-200 md:hidden"
         aria-label="التنقل السفلي"
       >
         <div className="grid grid-cols-6">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => item.id !== 'settings').map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
             return (

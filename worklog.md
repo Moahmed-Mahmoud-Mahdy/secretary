@@ -428,3 +428,33 @@ Task: Status assessment + browser QA + new features (notification center groupin
 - Notification "mark one as read" optimistic update still reloads on failure (unchanged from before).
 - Next round suggestions: PWA offline shell (service worker + manifest + dark variant icon); TTS Arabic voice comparison; auto-copy-budget one-click action inside the BUDGET_REMINDER notification (deep-link chip to finance copy button); notification center "mark read on scroll" or per-group collapse; AI reschedule tests expansion ("أجل مهمة X لبكرة" dedicated POSTPONE regression suite).
 - QA artifacts: download/qa-r9-home.png, qa-r9-tasks.png, qa-r9-finance.png, qa-r9-calendar.png, qa-r9-assistant.png, qa-r9-ai-reply2.png, qa-r9-dark-home.png, qa-r9-week-header.png, qa-r9-notifs.png, qa-r9-dark-notifs.png, qa-r9-final-home.png.
+---
+Task ID: cron-20261004-10
+Agent: main (Z.ai Code) — webDevReview round 10
+Task: Status assessment + browser QA + new features (global search palette ⌘K, settings view, data export, profile editing) + styling polish
+
+## Current project status
+- STABLE. Pre-work browser QA passed on all 6 views (light), AI CREATE + QUERY regressions verified live with real data (expense "دفعت 45 جنيه أكل من الفول" → سجلت 45 جنيه على فول; QUERY "إيه أحسن وقت أذاكر فيه النهارده؟" → answered from real schedule + habit streak). Dark mode re-verified. lint + tsc clean (app code). Test expense deleted after QA (data hygiene).
+- NOTE for future QA rounds: when a modal dialog is open, Radix sets aria-hidden on the app root — `offsetParent`-based visibility filters behave unexpectedly (header buttons appear hidden). Always press Escape / close dialogs before eval-based UI driving. Also: a stale intermediate compile once killed the dev server (Fast Refresh full reload during a mid-edit save); restart with `nohup bun run dev > dev.log 2>&1 &` if connection refused.
+
+## This round: completed modifications & verification
+1. **Global search palette (بحث سريع, BRD §43)** — NEW flagship feature:
+   - Backend: `GET /api/search?q=` → SearchUseCases (Onion: domain/services/search.ts `normalizeArabic` + `matchesQuery` — strips diacritics/tatweel, أإآ→ا, ة→ه, ى→ي, ؤ→و, ئ→ي; multi-token AND matching). Searches tasks (title/description/tags, scored by relevance+status+priority), projects (name/desc), events (title/notes), expenses + incomes (description/source). 6 per group, user-isolated.
+   - Frontend: `search-palette.tsx` — Dialog + cmdk `Command` with **`shouldFilter={false}`** (critical: cmdk's built-in filter hides server results otherwise — first version silently showed empty lists until fixed). Debounced 250ms, loading spinner, empty state, grouped results (المهام/المشاريع/الأحداث/الفلوس) with priority badges, overdue tint, category icons, +amount/-amount coloring, Arabic plural footer (نتيجة واحدة/نتيجتين/N نتايج), Enter/arrow keyboard nav via cmdk.
+   - Deep-link navigation: task→المهام, project→المشاريع, event→التقويم (focusDate jumps day strip + day mode), expense/income→الفلوس (focusMonth opens that month, e.g. September expense opened سبتمبر 2026 directly — verified E2E). CalendarView got `focusDate/onFocusDateConsumed` props, FinanceView `focusMonth/onFocusMonthConsumed`.
+   - Opened via: header search button (desktop+mobile), **⌘K/Ctrl+K** (toggle), works in dialogs-excluded keyboard handler. Footer kbd hints updated (⌘K للبحث | / | 1-7).
+2. **Settings view (الإعدادات)** — NEW 7th view:
+   - Profile card: inline name edit (PATCH /api/auth/me → AuthUseCases.updateProfile + IUserRepository.update + Prisma impl, validation 2-40 chars) — E2E: renamed مهدي→مهدي عبد الله→toast→reverted. Email display + JWT session badge.
+   - Budget card: quick monthly budget set (emerald), hint to الفلوس for full control.
+   - **Data export (BRD §19)**: `GET /api/export` → ExportUseCases full JSON bundle (profile/projects/tasks/events/expenses/incomes/budgets/categoryBudgets/planSlots). Raw NextResponse with Content-Disposition (can't use handleRoute — it envelopes streams; self-contained try/catch). Client uses fetch→Blob→objectURL download (iframe.src approach does NOT fire onload reliably for attachment responses — first attempt showed no toast). E2E: toast "اتنزلت نسخة كاملة من بياناتك 📦" + valid 26KB JSON verified via curl (12 tasks/3 events/13 expenses/2 incomes/4 slots).
+   - Keyboard shortcuts card (⌘K, /, 1-7, Esc) + about blurb. Desktop nav adds الإعدادات (7 items, keys 1-7); mobile keeps 6-item bottom nav + NEW gear icon button in header (amber when active).
+3. **Styling polish**: header search icon button (hover amber), user name is now a button→settings, palette custom theming (group headings, rounded-xl items, aria-selected amber-50), settings cards with tinted icon chips (amber/emerald/sky), kbd chips, proper RTL throughout, dark mode auto-covered by globals.css overrides — verified palette + settings in true dark (after disambiguating the Radix scrim from actual dark mode).
+4. **API client**: SearchResultsDTO + SEARCH_EMPTY + endpoints.search/updateProfile; NotificationType synced with backend (BUDGET_REMINDER, HABIT_REMINDER were missing client-side).
+
+## Unresolved issues / risks & next priorities
+- Search hits don't jump/flash the specific item after navigation (deep-links to view level; per-item highlight would be a nice follow-up — e.g. amber ring on the focused task card).
+- cmdk group heading counts are static per search response (fine — server-computed).
+- Export bundle includes tasks with full subtask nesting but not notification history (list is small; can add later).
+- Palette results limited to 6/group — personal-scale adequate.
+- Next round suggestions: per-item highlight after search navigation; import/restore from backup JSON; TTS Arabic voice comparison (kazi/xiaochen); PWA offline shell revisit (manifest exists, SW skipped — zero value in dev-only sandbox, real value in prod); weekly report on home ("أسبوعك" mini bar chart of completions/day); AI "أيهما أفضل" trade-off answers (compare two tasks' deadlines).
+- QA artifacts: download/qa-r10-*.png (palette light/dark/results, settings light/dark/mobile, final home).

@@ -157,9 +157,12 @@ function celebrateStreak(streak: number): void {
 interface CalendarViewProps {
   refreshKey: number;
   onAuthError: () => void;
+  /** Deep-link: jump the day strip to this day key (from global search). */
+  focusDate?: string | null;
+  onFocusDateConsumed?: () => void;
 }
 
-export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
+export function CalendarView({ refreshKey, onAuthError, focusDate, onFocusDateConsumed }: CalendarViewProps) {
   const [selectedKey, setSelectedKey] = useState(todayKey());
   const [mode, setMode] = useState<'day' | 'week' | 'recurring'>('day');
   const [events, setEvents] = useState<EventDTO[]>([]);
@@ -234,6 +237,16 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
 
   // Week strip: 7 days starting from week anchor
   const today = todayKey();
+
+  // Global-search deep-link: jump to the requested day once.
+  useEffect(() => {
+    if (focusDate) {
+      setSelectedKey(focusDate);
+      setMode('day');
+      onFocusDateConsumed?.();
+    }
+  }, [focusDate]);
+
   const weekStart = weekStartKey(selectedKey);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDaysKey(weekStart, i));
 

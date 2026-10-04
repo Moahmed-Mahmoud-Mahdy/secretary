@@ -17,7 +17,8 @@ export type EventType = 'FIXED' | 'AI_PLANNED';
 export type PlanSlotStatus = 'PLANNED' | 'DONE' | 'MISSED';
 export type NotificationType =
   | 'TASK_REMINDER' | 'EVENT_REMINDER' | 'DEADLINE_WARNING' | 'OVERDUE_TASK'
-  | 'BUDGET_ALERT' | 'EXPECTED_EXPENSE' | 'WEEKLY_SUMMARY' | 'AI_SUGGESTION' | 'REPLAN';
+  | 'BUDGET_ALERT' | 'BUDGET_REMINDER' | 'EXPECTED_EXPENSE' | 'WEEKLY_SUMMARY'
+  | 'AI_SUGGESTION' | 'REPLAN' | 'HABIT_REMINDER';
 export type InsightKind = 'INSIGHT' | 'WARNING' | 'IMPORTANT' | 'SUGGESTION';
 export type InsightDomain = 'FINANCE' | 'TASKS' | 'PLANNING' | 'CALENDAR';
 export type AiActionType =
@@ -272,6 +273,64 @@ export interface FinanceSummaryDTO {
   }[];
 }
 
+// ---------- Search + profile (BRD §43 productivity helpers) ----------
+export interface SearchHitTask {
+  id: string;
+  title: string;
+  priority: Priority;
+  status: TaskStatusOrOverdue;
+  isOverdue: boolean;
+  deadline: string | null;
+  projectName: string | null;
+}
+
+export interface SearchHitProject {
+  id: string;
+  name: string;
+  progress: number;
+  tasksCount: number;
+}
+
+export interface SearchHitEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string | null;
+}
+
+export interface SearchHitExpense {
+  id: string;
+  amount: number;
+  category: string;
+  description: string | null;
+  date: string;
+}
+
+export interface SearchHitIncome {
+  id: string;
+  amount: number;
+  source: string | null;
+  date: string;
+}
+
+export interface SearchResultsDTO {
+  query: string;
+  tasks: SearchHitTask[];
+  projects: SearchHitProject[];
+  events: SearchHitEvent[];
+  expenses: SearchHitExpense[];
+  incomes: SearchHitIncome[];
+}
+
+export const SEARCH_EMPTY: SearchResultsDTO = {
+  query: '',
+  tasks: [],
+  projects: [],
+  events: [],
+  expenses: [],
+  incomes: [],
+};
+
 // ---------- Fetch core ----------
 export class ApiError extends Error {
   status: number;
@@ -332,6 +391,8 @@ export function apiErrorMessage(e: unknown): string {
 // ---------- Endpoint helpers ----------
 export const endpoints = {
   me: () => api.get<{ user: UserDTO | null }>('/api/auth/me'),
+  updateProfile: (name: string) => api.patch<{ user: UserDTO }>('/api/auth/me', { name }),
+  search: (q: string) => api.get<SearchResultsDTO>(`/api/search?q=${encodeURIComponent(q)}`),
   login: (email: string, password: string) =>
     api.post<{ user: UserDTO }>('/api/auth/login', { email, password }),
   register: (name: string, email: string, password: string) =>

@@ -288,6 +288,58 @@ export interface InsightDTO {
 }
 
 // ============================================================
+// Global search + data export (BRD §43 productivity helpers)
+// ============================================================
+
+export interface SearchHitTask {
+  id: string;
+  title: string;
+  priority: Priority;
+  status: TaskStatus | 'OVERDUE';
+  isOverdue: boolean;
+  deadline: string | null;
+  projectName: string | null;
+}
+
+export interface SearchHitProject {
+  id: string;
+  name: string;
+  progress: number;
+  tasksCount: number;
+}
+
+export interface SearchHitEvent {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string | null;
+}
+
+export interface SearchHitExpense {
+  id: string;
+  amount: number;
+  category: string;
+  description: string | null;
+  date: string;
+}
+
+export interface SearchHitIncome {
+  id: string;
+  amount: number;
+  source: string | null;
+  date: string;
+}
+
+export interface SearchResultsDTO {
+  query: string;
+  tasks: SearchHitTask[];
+  projects: SearchHitProject[];
+  events: SearchHitEvent[];
+  expenses: SearchHitExpense[];
+  incomes: SearchHitIncome[];
+}
+
+// ============================================================
 // AI-related shared types
 // ============================================================
 

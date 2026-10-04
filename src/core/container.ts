@@ -7,6 +7,8 @@ import { FinanceUseCases } from './application/use-cases/finance-use-cases';
 import { PlanningUseCases } from './application/use-cases/planning-use-cases';
 import { DashboardUseCases } from './application/use-cases/dashboard-use-cases';
 import { AiChatUseCases } from './application/use-cases/ai-chat-use-cases';
+import { SearchUseCases } from './application/use-cases/search-use-cases';
+import { ExportUseCases } from './application/use-cases/export-use-cases';
 
 import { BcryptPasswordHasher } from './infrastructure/auth/bcrypt-hasher';
 import { JoseTokenService } from './infrastructure/auth/jose-token-service';
@@ -72,6 +74,8 @@ const aiChatUseCases = new AiChatUseCases(
   projectUseCases
 );
 const authUseCases = new AuthUseCases(users, hasher, tokens);
+const searchUseCases = new SearchUseCases(tasks, projects, events, finance);
+const exportUseCases = new ExportUseCases(users, tasks, projects, events, finance, plans);
 
 export const container = {
   users,
@@ -84,6 +88,8 @@ export const container = {
   speech,
   speechOut,
   authUseCases,
+  searchUseCases,
+  exportUseCases,
   taskUseCases,
   projectUseCases,
   eventUseCases,
