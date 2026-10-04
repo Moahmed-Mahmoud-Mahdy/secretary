@@ -236,6 +236,7 @@ export interface FinanceSummaryDTO {
     amount: number;
     category: ExpenseCategory;
     description: string | null;
+    recurrence: Recurrence | null;
     nextDueAt: string;
   }[];
 }
@@ -356,6 +357,8 @@ export const endpoints = {
     api.get<{ expenses: ExpenseDTO[] }>(`/api/expenses${month ? `?month=${month}` : ''}`),
   createExpense: (body: Record<string, unknown>) =>
     api.post<{ expense: ExpenseDTO }>('/api/expenses', body),
+  updateExpense: (id: string, body: Record<string, unknown>) =>
+    api.patch<{ expense: ExpenseDTO }>(`/api/expenses/${id}`, body),
   deleteExpense: (id: string) => api.del<{ deleted: boolean }>(`/api/expenses/${id}`),
 
   incomes: (month?: string) =>

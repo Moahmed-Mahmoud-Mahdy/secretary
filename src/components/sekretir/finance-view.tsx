@@ -44,6 +44,7 @@ import {
   endpoints,
   isAuthError,
   type ExpenseCategory,
+  type ExpenseDTO,
   type FinanceSummaryDTO,
   type Recurrence,
 } from '@/lib/sekretir/api';
@@ -68,8 +69,9 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
   const [budgetDraft, setBudgetDraft] = useState('');
   const [savingBudget, setSavingBudget] = useState(false);
 
-  // add expense dialog
+  // add / edit expense dialog
   const [expenseOpen, setExpenseOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseDTO | null>(null);
   const [expForm, setExpForm] = useState({
     amount: '',
     category: 'FOOD' as ExpenseCategory,
@@ -190,30 +192,54 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
     }
   }
 
-  async function addExpense() {
+  async function saveExpense() {
     const amount = Number(expForm.amount);
     if (!amount || amount <= 0 || addingExpense) return;
     setAddingExpense(true);
     try {
-      await endpoints.createExpense({
-        amount,
-        category: expForm.category,
-        description: expForm.description.trim() || null,
-        date: expForm.date || todayKey(),
-        isRecurring: expForm.isRecurring,
-        recurrence:
-          expForm.isRecurring && expForm.recurrence !== 'none'
-            ? (expForm.recurrence as Recurrence)
-            : null,
-      });
+      if (editingExpense) {
+        await endpoints.updateExpense(editingExpense.id, {
+          amount,
+          category: expForm.category,
+          description: expForm.description.trim() || null,
+          date: expForm.date || todayKey(),
+        });
+        toast.success('اتعدل المصروف ✏️');
+      } else {
+        await endpoints.createExpense({
+          amount,
+          category: expForm.category,
+          description: expForm.description.trim() || null,
+          date: expForm.date || todayKey(),
+          isRecurring: expForm.isRecurring,
+          recurrence:
+            expForm.isRecurring && expForm.recurrence !== 'none'
+              ? (expForm.recurrence as Recurrence)
+              : null,
+        });
+        toast.success('سجلت المصروف 💸');
+      }
       setExpenseOpen(false);
-      toast.success('سجلت المصروف 💸');
+      setEditingExpense(null);
       await load();
     } catch (e) {
       toast.error(apiErrorMessage(e));
     } finally {
       setAddingExpense(false);
     }
+  }
+
+  function openEditExpense(x: ExpenseDTO) {
+    setEditingExpense(x);
+    setExpForm({
+      amount: String(x.amount),
+      category: x.category,
+      description: x.description ?? '',
+      date: x.date.slice(0, 10),
+      isRecurring: false,
+      recurrence: 'none',
+    });
+    setExpenseOpen(true);
   }
 
   async function addIncome() {
@@ -689,9 +715,12 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
                     .map((x) => {
                       const meta = CATEGORY_META[x.category];
                       return (
-                        <li key={x.id} className="flex items-center gap-3 py-2.5">
+                        <li
+                          key={x.id}
+                          className="group flex items-center gap-3 py-2.5 -mx-2 px-2 rounded-xl hover:bg-amber-50/50 transition-colors"
+                        >
                           <span
-                            className="size-9 rounded-xl bg-stone-50 border border-stone-100 flex items-center justify-center text-base shrink-0"
+                            className="size-9 rounded-xl bg-stone-50 border border-stone-100 group-hover:bg-white flex items-center justify-center text-base shrink-0 transition-colors"
                             aria-hidden
                           >
                             {meta.icon}
@@ -711,15 +740,26 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
                           <span className="text-sm font-extrabold text-rose-600 tabular-nums shrink-0">
                             −{fmtMoney(x.amount)} ج
                           </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-stone-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
-                            onClick={() => deleteExpense(x.id)}
-                            aria-label="امسح المصروف"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
+                          <div className="flex items-center shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-stone-300 hover:text-amber-700 hover:bg-amber-100 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                              onClick={() => openEditExpense(x)}
+                              aria-label="عدّل المصروف"
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-stone-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+                              onClick={() => deleteExpense(x.id)}
+                              aria-label="امسح المصروف"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
                         </li>
                       );
                     })}
@@ -773,6 +813,7 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       <Button
         className="fixed bottom-20 md:bottom-6 end-4 md:end-6 z-30 rounded-full bg-amber-600 hover:bg-amber-700 text-white shadow-lg px-5 h-12 active:scale-95 transition-transform"
         onClick={() => {
+          setEditingExpense(null);
           setExpForm({
             amount: '',
             category: 'FOOD',
@@ -788,12 +829,22 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
         ضيف مصروف
       </Button>
 
-      {/* Add expense dialog */}
-      <Dialog open={expenseOpen} onOpenChange={setExpenseOpen}>
+      {/* Add / edit expense dialog */}
+      <Dialog
+        open={expenseOpen}
+        onOpenChange={(o) => {
+          setExpenseOpen(o);
+          if (!o) setEditingExpense(null);
+        }}
+      >
         <DialogContent className="rounded-2xl max-h-[90dvh] overflow-y-auto sekretir-scroll">
           <DialogHeader>
-            <DialogTitle>مصروف جديد 💸</DialogTitle>
-            <DialogDescription>سجل اللي صرفته — سكرتير هيحسبه معاك.</DialogDescription>
+            <DialogTitle>{editingExpense ? 'تعديل المصروف ✏️' : 'مصروف جديد 💸'}</DialogTitle>
+            <DialogDescription>
+              {editingExpense
+                ? 'عدّل المبلغ أو انقله لفئة تانية — سكرتير هيحدّث الحسابات.'
+                : 'سجل اللي صرفته — سكرتير هيحسبه معاك.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">
             <div className="grid grid-cols-2 gap-3">
@@ -847,18 +898,20 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
                 placeholder="مثلاً: فطار من الشارع"
               />
             </div>
-            <div className="flex items-center justify-between rounded-xl bg-stone-50 border border-stone-100 px-3 py-2.5">
-              <div>
-                <p className="text-sm font-semibold text-stone-700">مصروف متكرر</p>
-                <p className="text-[10px] text-stone-400">زي فاتورة النت كل شهر</p>
+            {!editingExpense ? (
+              <div className="flex items-center justify-between rounded-xl bg-stone-50 border border-stone-100 px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-semibold text-stone-700">مصروف متكرر</p>
+                  <p className="text-[10px] text-stone-400">زي فاتورة النت كل شهر</p>
+                </div>
+                <Switch
+                  checked={expForm.isRecurring}
+                  onCheckedChange={(v) => setExpForm((f) => ({ ...f, isRecurring: v }))}
+                  aria-label="مصروف متكرر"
+                />
               </div>
-              <Switch
-                checked={expForm.isRecurring}
-                onCheckedChange={(v) => setExpForm((f) => ({ ...f, isRecurring: v }))}
-                aria-label="مصروف متكرر"
-              />
-            </div>
-            {expForm.isRecurring ? (
+            ) : null}
+            {expForm.isRecurring && !editingExpense ? (
               <div className="space-y-2">
                 <Label>يتكرر امتى؟</Label>
                 <Select
@@ -880,16 +933,22 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
             ) : null}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setExpenseOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setExpenseOpen(false);
+                setEditingExpense(null);
+              }}
+            >
               إلغاء
             </Button>
             <Button
               className="bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={addExpense}
+              onClick={saveExpense}
               disabled={addingExpense || !expForm.amount}
             >
-              {addingExpense ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-              سجل المصروف
+              {addingExpense ? <Loader2 className="size-4 animate-spin" /> : editingExpense ? <Pencil className="size-4" /> : <Plus className="size-4" />}
+              {editingExpense ? 'احفظ التعديل' : 'سجل المصروف'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -25,6 +25,7 @@ import type {
   IUserRepository,
 } from '../../domain/repositories';
 import { eventOccurrenceOnDay } from '../../domain/services/recurrence';
+import { CATEGORY_LABELS_AR } from '../../domain/enums';
 
 // ============================================================
 // Dashboard use case (BRD §25, §29) — context-aware home data:
@@ -207,7 +208,16 @@ export class DashboardUseCases {
     const spentLast7 = expenses
       .filter((e) => now.getTime() - e.date.getTime() <= 7 * 86_400_000)
       .reduce((s, e) => s + e.amount, 0);
-    await this.syncNotifications(user, taskRecords, budget, monthSpent, now, spentLast7, completedLast7);
+    await this.syncNotifications(
+      user,
+      taskRecords,
+      budget,
+      monthSpent,
+      now,
+      spentLast7,
+      completedLast7,
+      categoryLimits
+    );
     const [unread, unreadCount] = await Promise.all([
       this.notifications.listUnread(userId),
       this.notifications.unreadCount(userId),
@@ -251,7 +261,8 @@ export class DashboardUseCases {
     monthSpent: number,
     now: Date,
     spentLast7: number,
-    completedLast7: number
+    completedLast7: number,
+    categoryLimits: { category: string; limit: number; spent: number; pct: number; over: boolean }[]
   ): Promise<void> {
     const today = dayKeyOf(now);
     const items: { type: string; title: string; body: string; refKey: string }[] = [];
@@ -299,6 +310,28 @@ export class DashboardUseCases {
         body: `صرفت ${Math.round((monthSpent / budget) * 100)}% من ميزانية الشهر (${Math.round(monthSpent)} من ${Math.round(budget)} جنيه).`,
         refKey: `budget-${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`,
       });
+    }
+
+    // Per-category limit alerts (BRD §21) — fired as soon as a limit is
+    // crossed or nearly crossed, deduped per category/month/threshold.
+    const monthKey = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+    for (const cl of categoryLimits) {
+      if (cl.limit <= 0) continue;
+      if (cl.over) {
+        items.push({
+          type: 'BUDGET_ALERT',
+          title: 'عدّيت حد الصرف! 🚨',
+          body: `خالصت حد ${CATEGORY_LABELS_AR[cl.category as keyof typeof CATEGORY_LABELS_AR] ?? cl.category} (${Math.round(cl.spent)} من ${Math.round(cl.limit)} ج) — خلي بالك من باقي الشهر أو ظبّط الحد.`,
+          refKey: `catlimit-${cl.category}-${monthKey}-over`,
+        });
+      } else if (cl.pct >= 80) {
+        items.push({
+          type: 'BUDGET_ALERT',
+          title: 'قربت توصل للحد ⚠️',
+          body: `صرفت ${cl.pct}% من حد ${CATEGORY_LABELS_AR[cl.category as keyof typeof CATEGORY_LABELS_AR] ?? cl.category} (${Math.round(cl.spent)} من ${Math.round(cl.limit)} ج) — فاضل ${Math.max(0, Math.round(cl.limit - cl.spent))} ج بس.`,
+          refKey: `catlimit-${cl.category}-${monthKey}-near`,
+        });
+      }
     }
 
     if (items.length > 0) {

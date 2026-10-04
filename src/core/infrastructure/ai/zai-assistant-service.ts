@@ -73,7 +73,7 @@ function buildInterpretSystemPrompt(context: InterpretInput['context']): string 
 {"intent":"<INTENT>","actions":[<ACTION>،...]}
 
 INTENT يكون واحد من:
-CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, SUGGEST_PLAN, UNKNOWN
+CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, UPDATE_EXPENSE, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, SUGGEST_PLAN, UNKNOWN
 
 أنواع الـ Actions (التزم بالحقول دي بالظبط):
 {"type":"CREATE_TASK","title":"...","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":null|عدد الدقايق,"deadline":null|"YYYY-MM-DDTHH:mm:ss","projectName":null|"اسم المشروع","description":null|"وصف"}
@@ -87,6 +87,7 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 {"type":"DELETE_TASK","taskName":"اسم المهمة"}
 {"type":"UPDATE_TASK","taskName":"اسم المهمة","fields":{"title"?:"...","priority"?:"...","deadline"?:"YYYY-MM-DDTHH:mm:ss","estimatedMinutes"?:عدد,"description"?:"..."}}
 {"type":"DELETE_EVENT","eventName":"اسم الحدث"}
+{"type":"UPDATE_EXPENSE","expenseName":"اسم المصروف زي ما هو مسجل (الوصف)","amount":null|عدد جديد,"category":null|"FOOD"|"TRANSPORT"|"EDUCATION"|"PROJECTS"|"BILLS"|"SHOPPING"|"ENTERTAINMENT"|"OTHER"}
 {"type":"CREATE_PROJECT_WITH_TASKS","name":"اسم المشروع","description":null,"deadline":null|"YYYY-MM-DD","tasks":[{"title":"خطوة مختصرة","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":عدد|null}]}
 {"type":"ADD_SUBTASKS","taskName":"اسم المهمة الموجودة","subtasks":["خطوة 1","خطوة 2","خطوة 3"]}
 {"type":"PLAN_DAY","date":null|"YYYY-MM-DD"}
@@ -108,7 +109,8 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 12. لو المستخدم بيقول هدف كبير أو مشروع من غير تفاصيل (مثال: "عايز أعمل موقع تخرج"، "عايز أخلص مشروع الـPOS"، "عايز أتعلم برمجة") → intent=SUGGEST_PLAN و actions فيه عنصر واحد CREATE_PROJECT_WITH_TASKS: اسم المشروع + 4-8 مهام منطقية مترتبة بترتيب التنفيذ، كل مهمة بمدة تقديرية معقولة. لو الهدف مطابق لاسم مشروع من مشاريع المستخدم استخدم نفس الاسم وجزّئه لمهام جديدة جواه. ممنوع تختلق deadline.
 13. لو المستخدم طلب تقسيم مهمة موجودة لخطوات (مثال: "قسمل مهمة X لخطوات"، "ضيف خطوات تحت X") → action واحد ADD_SUBTASKS باسم المهمة و3-6 خطوات.
 14. "خلي/ظبط/حدد ميزانية [الفئة] بمبلغ" أو "حد صرفي على الأكل كذا" (فئة معينة من غير ما يقول ميزانية الشهر كلها) → SET_CATEGORY_BUDGET بالفئة المناسبة. لو قال "ميزانيتي كذا" من غير فئة → SET_BUDGET.
-15. ممنوع تطلع أي حاجة غير الـ JSON.`;
+15. لو المستخدم عايز يصحّح أو يعدّل مصروف اتسجل قبل كده (مثال: "المصروف اللي سجلته مواصلات كان 60 مش 50"، "انقل مصروف الفطار لفئة الأكل"، "التصنيف بتاع X غلط خليه Y") → action واحد UPDATE_EXPENSE باسم المصروف (expenseName) والمبلغ الجديد و/أو الفئة الجديدة. ممنوع تستخدم UPDATE_EXPENSE لمصروف جديد — ده لبيعدي.
+16. ممنوع تطلع أي حاجة غير الـ JSON.`;
 }
 
 export class ZaiAssistantService implements IAiAssistantService {

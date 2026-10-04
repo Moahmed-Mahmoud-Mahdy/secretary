@@ -97,23 +97,27 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
 
   return (
     <div className="space-y-5">
-      {/* Greeting */}
+      {/* Greeting hero — soft amber gradient banner */}
       <FadeIn>
-      <div className="flex items-center gap-2">
-        {isMorning ? (
-          <Sun className="size-6 text-amber-500" aria-hidden />
-        ) : isAfternoon ? (
-          <SunMedium className="size-6 text-amber-500" aria-hidden />
-        ) : (
-          <Moon className="size-6 text-stone-500" aria-hidden />
-        )}
-        <h1 className="text-xl sm:text-2xl font-extrabold text-stone-900">
-          {greeting} يا {firstName} {dayEmoji}
-        </h1>
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-l from-amber-100/80 via-orange-50/70 to-stone-50 border border-amber-100/80 px-4 sm:px-5 py-4">
+        <div className="absolute -top-10 -end-10 size-32 rounded-full bg-amber-200/40 blur-2xl" aria-hidden />
+        <div className="absolute -bottom-12 start-1/4 size-24 rounded-full bg-orange-200/30 blur-2xl" aria-hidden />
+        <div className="relative flex items-center gap-2">
+          {isMorning ? (
+            <Sun className="size-6 text-amber-500" aria-hidden />
+          ) : isAfternoon ? (
+            <SunMedium className="size-6 text-amber-500" aria-hidden />
+          ) : (
+            <Moon className="size-6 text-stone-500" aria-hidden />
+          )}
+          <h1 className="text-xl sm:text-2xl font-extrabold text-stone-900">
+            {greeting} يا {firstName} {dayEmoji}
+          </h1>
+        </div>
+        {data?.suggestion ? (
+          <p className="relative text-sm text-stone-600 mt-1.5">💡 {data.suggestion}</p>
+        ) : null}
       </div>
-      {data?.suggestion ? (
-        <p className="text-sm text-stone-500 mt-1">💡 {data.suggestion}</p>
-      ) : null}
       </FadeIn>
 
       {/* AI input */}

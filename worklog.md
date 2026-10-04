@@ -232,3 +232,42 @@ Task: Status assessment + browser QA + new features (per-category budget limits,
 - agent-browser CLI here can't set a mobile viewport (no flag) — mobile verified by responsive classes only this round (week grid scrolls horizontally on mobile by design; day views were mobile-verified in earlier rounds).
 - Category limit edit reuses the add row (pencil prefills it) — if user navigates months the form targets browsed month (intended).
 - Next round suggestions: notification when a category limit is crossed (BUDGET_ALERT on expense create vs its limit); "الأسبوع الجاي/اللي فات" nav also in week mode already works via week strip; dark mode; habits/recurring check-in view (BRD §16); transfer between categories (BRD §19); per-task live timer on home timeline.
+
+---
+Task ID: cron-20261004-4
+Agent: main (Z.ai Code) — webDevReview round 4
+Task: Status assessment + browser QA + new features (category-limit notifications, expense edit/move, المتكرر hub) + AI UPDATE_EXPENSE + styling
+
+## Current project status
+- STABLE. Browser QA round passed end-to-end (agent-browser, desktop): home renders, AI QUERY regression OK ("قد إيه صرفت الشهر ده؟" → real data), all 6 views healthy, lint + tsc clean (app code), no runtime errors in dev.log.
+- Minor note confirmed: "من8,000" spacing seen in a11y snapshots is a snapshot artifact only — real DOM renders "من 8,000" (finance-view.tsx:398 uses `من{' '}`).
+
+## This round: completed modifications & verification
+1. **Category-limit crossing notifications (BRD §21/§28)** — dashboard `syncNotifications` now takes categoryLimits and emits per-category BUDGET_ALERTs, deduped via refKey `catlimit-{cat}-{Y-M}-{over|near}`:
+   - over (spent ≥ limit) → "عدّيت حد الصرف! 🚨 خالصت حد فواتير (575 من 500 ج)..."
+   - near (80-99%) → "قربت توصل للحد ⚠️ صرفت 80% من حد أكل وشرب (320 من 400 ج) — فاضل 80 ج بس."
+   - Verified live: bell showed 3 new alerts matching demo data exactly (BILLS over, FOOD 80%, TRANSPORT over).
+2. **Expense edit / move between categories (BRD §19 corrections)** — full stack:
+   - Domain: `UpdateExpenseData` + `IFinanceRepository.updateExpense`; Prisma impl (partial update, userId-scoped findFirst guard).
+   - Application: `FinanceUseCases.updateExpense` (validates amount/category/date; unknown-category → Arabic error) + `matchExpense` (fuzzy description match over last 60 days, most-recent-first).
+   - API: PATCH /api/expenses/[id] {amount?, category?, description?, date?}.
+   - AI: NEW action `UPDATE_EXPENSE` (intent + action enum, prompt rule 15) — auto-executes (single correction, like SET_CATEGORY_BUDGET). Verified live twice: "المصروف اللي سجلته أوبر كان 60 جنيه مش 45" → "عدّلت «أوبر» — بقى 60 جنيه" (DB: 45→60); "انقل مصروف مواصلات الجامعة لفئة الترفيه" → DB TRANSPORT→ENTERTAINMENT (restored after QA).
+   - UI: expense rows now group-hover with amber tint; pencil button (hover-reveal, focus-visible kept) opens the add-dialog in edit mode (title "تعديل المصروف ✏️", prefilled, recurring switch hidden); toast "اتعدل المصروف ✏️". Verified E2E: غدا في الكافيتريا 🍔→🛍️, amount 65→90 saved.
+3. **المتكرر hub (BRD §16 habits & recurring check-in)** — third calendar mode (يوم/أسبوع/المتكرر):
+   - عاداتك المتكررة: open recurring tasks with recurrence label + next deadline + duration; "خلصتها ✅" check-in completes the instance (backend auto-materializes the next one — verified: daily habit moved from "النهارده 23:00" to "الجاي بكرة 23:00" after check-in).
+   - مواعيد ثابتة متكررة: recurring events with time + next-occurrence chip (client-side 60-day lookahead on recurrence rules).
+   - التزاماتك المالية المتكررة: upcoming recurring bills with next-due + monthly total ("500 ج/شهر").
+   - Backend fix: `FinanceSummaryDTO.upcomingRecurring` now global (not month-scoped) — merges month expenses + all recurring with nextDueAt > now, deduped by id, now includes `recurrence` field. Verified: September-created internet bill (nextDueAt Oct 7) appears in October summary.
+   - Seed: 2 new demo habits (أذاكر ساعة قبل النوم DAILY, أراجع مصاريفي للأسبوع WEEKLY) added; re-seeded.
+4. **Styling polish [mandatory]**:
+   - Home greeting is now a hero banner: amber gradient (amber-100→orange-50→stone-50, RTL direction) with blurred glow circles, suggestion inline — verified screenshot.
+   - Staggered FadeIn entrances on the three المتكرر cards; colored icon tiles (orange Flame / amber Repeat / emerald Wallet); hover states on all hub rows.
+   - Expense rows: group hover amber tint + white icon tile + hover-reveal edit button.
+   - Calendar toggle now 3 pills with active amber state; المتكرر tab screenshot verified.
+5. QA artifacts: download/qa-home-hero.png, download/qa-recurring-hub.png.
+
+## Unresolved issues / risks & next priorities
+- UPDATE_EXPENSE matches by description only (last 60 days) — expenses with empty description can't be matched by name (AI replies "ملقيتش مصروف باسم..."). Could add amount-hint matching later.
+- Habit check-in "streak" count not persisted (flame shown only as due-today indicator) — a real streak counter would need a completion history query per task.
+- ASR voice path still unverified with a real mic (headless limitation); TTS Arabic accent acceptable.
+- Next round suggestions: dark mode; income edit; budget-vs-actual month report card; per-task live timer on home timeline; transfer between categories as explicit قاعدة (مبلغ ثابت يتنقل شهريًا); notification when recurring expense comes due (EXPECTED_EXPENSE alert on nextDueAt day); PWA offline shell.

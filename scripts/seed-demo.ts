@@ -105,6 +105,29 @@ async function main() {
       recurrence: 'MONTHLY',
     },
   });
+  // Habits (recurring tasks) — showcase the المتكرر hub (BRD §16).
+  await db.task.create({
+    data: {
+      userId: user.id,
+      title: 'أذاكر ساعة قبل النوم',
+      priority: 'MEDIUM',
+      estimatedMinutes: 60,
+      deadline: wall(0, 23, 0),
+      recurrence: 'DAILY',
+      tags: 'عادة',
+    },
+  });
+  await db.task.create({
+    data: {
+      userId: user.id,
+      title: 'أراجع مصاريفي للأسبوع',
+      priority: 'LOW',
+      estimatedMinutes: 20,
+      deadline: wall(3, 22, 0),
+      recurrence: 'WEEKLY',
+      tags: 'عادة,فلوس',
+    },
+  });
   const overdue = await db.task.create({
     data: {
       userId: user.id,

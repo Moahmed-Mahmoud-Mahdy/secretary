@@ -1,7 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
+import {
+  CalendarDays,
+  CalendarPlus,
+  ChevronLeft,
+  ChevronRight,
+  Flame,
+  Loader2,
+  Repeat,
+  Trash2,
+  Wallet,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,21 +40,25 @@ import {
   isAuthError,
   type DayPlanDTO,
   type EventDTO,
+  type FinanceSummaryDTO,
   type OccurrenceDTO,
   type PlanSlotDTO,
   type Recurrence,
+  type TaskDTO,
   type WeekPlanDTO,
 } from '@/lib/sekretir/api';
-import { RECURRENCE_OPTIONS } from '@/lib/sekretir/constants';
+import { CATEGORY_META, RECURRENCE_LABELS, RECURRENCE_OPTIONS, fmtMoney } from '@/lib/sekretir/constants';
 import {
   addDaysKey,
   fmtTime,
   keyDayNumber,
+  relativeDay,
   relativeDayFromKey,
   todayKey,
   weekdayInitial,
   weekdayName,
 } from '@/lib/sekretir/date-utils';
+import { FadeIn } from '@/components/sekretir/fade-in';
 import { cn } from '@/lib/utils';
 
 /** Client-side occurrence expansion for events on a given day (wall-clock keys). */
@@ -113,12 +127,18 @@ interface CalendarViewProps {
 
 export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
   const [selectedKey, setSelectedKey] = useState(todayKey());
-  const [mode, setMode] = useState<'day' | 'week'>('day');
+  const [mode, setMode] = useState<'day' | 'week' | 'recurring'>('day');
   const [events, setEvents] = useState<EventDTO[]>([]);
   const [plan, setPlan] = useState<DayPlanDTO | null>(null);
   const [weekPlan, setWeekPlan] = useState<WeekPlanDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [slotBusy, setSlotBusy] = useState<string | null>(null);
+
+  // recurring hub (المتكرر)
+  const [recurringTasks, setRecurringTasks] = useState<TaskDTO[]>([]);
+  const [financeSummary, setFinanceSummary] = useState<FinanceSummaryDTO | null>(null);
+  const [recurringLoading, setRecurringLoading] = useState(false);
+  const [checkinBusy, setCheckinBusy] = useState<string | null>(null);
 
   // event edit dialog
   const [editEvent, setEditEvent] = useState<EventDTO | null>(null);
@@ -182,6 +202,67 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
   const today = todayKey();
   const weekStart = weekStartKey(selectedKey);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDaysKey(weekStart, i));
+
+  // Recurring hub data — only fetched in المتكرر mode.
+  const loadRecurring = useCallback(async () => {
+    setRecurringLoading(true);
+    try {
+      const [{ tasks: all }, fin] = await Promise.all([endpoints.tasks(), endpoints.financeSummary()]);
+      setRecurringTasks(
+        all.filter(
+          (t) => t.recurrence !== null && t.parentId === null && (t.status === 'TODO' || t.status === 'IN_PROGRESS')
+        )
+      );
+      setFinanceSummary(fin);
+    } catch (e) {
+      if (isAuthError(e)) {
+        onAuthError();
+        return;
+      }
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setRecurringLoading(false);
+    }
+  }, [onAuthError]);
+
+  useEffect(() => {
+    if (mode === 'recurring') void loadRecurring();
+  }, [mode, loadRecurring, refreshKey]);
+
+  const recurringEvents = events.filter((ev) => ev.recurrence !== null);
+  // Upcoming recurring commitments from the finance summary (global, not month-scoped).
+  const recurringExpenses = financeSummary?.upcomingRecurring ?? [];
+  const recurringMonthlyTotal = recurringExpenses.reduce((s, x) => s + x.amount, 0);
+
+  /** First occurrence day (>= today) of a recurring event, searching 60 days ahead. */
+  function nextEventDay(ev: EventDTO): string | null {
+    for (let i = 0; i <= 60; i += 1) {
+      const k = addDaysKey(today, i);
+      if (eventOccursOn(ev, k)) return k;
+    }
+    return null;
+  }
+
+  /** Habit check-in: complete today's instance — backend materializes the next one. */
+  async function checkinTask(t: TaskDTO) {
+    if (checkinBusy) return;
+    setCheckinBusy(t.id);
+    try {
+      await endpoints.updateTask(t.id, { status: 'COMPLETED' });
+      toast.success(`برافو! خلصت «${t.title}» النهارده 🔥`, {
+        description: 'سجلتلك الجاية في معادها',
+      });
+      await loadRecurring();
+    } catch (e) {
+      if (isAuthError(e)) {
+        onAuthError();
+        return;
+      }
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setCheckinBusy(null);
+    }
+  }
 
   const agenda: OccurrenceDTO[] = [
     ...events.filter((ev) => eventOccursOn(ev, selectedKey)).map((ev) => eventToOccurrence(ev, selectedKey)),
@@ -278,7 +359,7 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-extrabold text-stone-900">التقويم</h1>
         <div className="flex items-center gap-2">
-          {/* Day/Week mode toggle */}
+          {/* Day/Week/Recurring mode toggle */}
           <div className="flex items-center rounded-full border border-stone-200 bg-white p-0.5" role="tablist" aria-label="عرض التقويم">
             <button
               type="button"
@@ -305,6 +386,19 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
             >
               <CalendarDays className="size-3.5" />
               أسبوع
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'recurring'}
+              onClick={() => setMode('recurring')}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+                mode === 'recurring' ? 'bg-amber-600 text-white shadow-sm' : 'text-stone-500 hover:bg-stone-100'
+              )}
+            >
+              <Repeat className="size-3.5" />
+              المتكرر
             </button>
           </div>
           <Button
@@ -471,6 +565,186 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
             </p>
           </CardContent>
         </Card>
+      ) : mode === 'recurring' ? (
+        /* ---------- المتكرر hub (BRD §16): habits, recurring events & bills ---------- */
+        <div className="space-y-4">
+          {recurringLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-28 rounded-2xl" />
+              <Skeleton className="h-28 rounded-2xl" />
+              <Skeleton className="h-28 rounded-2xl" />
+            </div>
+          ) : (
+            <>
+              {/* Habits — recurring tasks with check-in */}
+              <FadeIn>
+                <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="flex items-center justify-between mb-1">
+                      <h2 className="font-bold text-stone-800 flex items-center gap-2">
+                        <span className="size-8 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center" aria-hidden>
+                          <Flame className="size-4 text-orange-600" />
+                        </span>
+                        عاداتك المتكررة
+                      </h2>
+                      <span className="text-xs font-bold text-stone-400">{recurringTasks.length}</span>
+                    </div>
+                    <p className="text-xs text-stone-400 mb-3">علّم على العادة كل ما تخلصها — وسكرتير يسجلها لك الجاية في معادها.</p>
+                    {recurringTasks.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-stone-400">
+                        مفيش عادات متكررة لسه — قول لسكرتير «فتكر يوميًا أذاكر ساعة» 🔄
+                      </p>
+                    ) : (
+                      <ul className="space-y-2 sekretir-scroll max-h-80 overflow-y-auto">
+                        {recurringTasks.map((t) => {
+                          const isDueToday = t.deadline ? t.deadline.slice(0, 10) <= today : true;
+                          return (
+                            <li
+                              key={t.id}
+                              className={cn(
+                                'flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors',
+                                isDueToday
+                                  ? 'border-amber-200 bg-amber-50/50 hover:bg-amber-50'
+                                  : 'border-stone-100 bg-stone-50/50 hover:bg-stone-50'
+                              )}
+                            >
+                              <span className="text-lg shrink-0" aria-hidden>
+                                {isDueToday ? '🔥' : '🔄'}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-stone-800 truncate">{t.title}</p>
+                                <p className="text-[10px] text-stone-400">
+                                  {RECURRENCE_LABELS[t.recurrence as Recurrence]}
+                                  {t.deadline ? ` • الجاي ${relativeDay(t.deadline)} ${fmtTime(t.deadline)}` : ''}
+                                  {t.estimatedMinutes ? ` • ${t.estimatedMinutes} د` : ''}
+                                </p>
+                              </div>
+                              <Button
+                                size="sm"
+                                disabled={checkinBusy === t.id}
+                                onClick={() => checkinTask(t)}
+                                className={cn(
+                                  'h-8 rounded-full text-xs shrink-0',
+                                  isDueToday
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
+                                )}
+                              >
+                                {checkinBusy === t.id ? (
+                                  <Loader2 className="size-3.5 animate-spin" />
+                                ) : (
+                                  'خلصتها ✅'
+                                )}
+                              </Button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              </FadeIn>
+
+              {/* Recurring fixed events */}
+              <FadeIn delay={0.08}>
+                <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+                  <CardContent className="p-4 sm:p-5">
+                    <h2 className="font-bold text-stone-800 flex items-center gap-2 mb-3">
+                      <span className="size-8 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center" aria-hidden>
+                        <Repeat className="size-4 text-amber-600" />
+                      </span>
+                      مواعيد ثابتة متكررة
+                    </h2>
+                    {recurringEvents.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-stone-400">مفيش مواعيد متكررة — ضيف موعد وحدد له تكرار 📅</p>
+                    ) : (
+                      <ul className="space-y-2 sekretir-scroll max-h-72 overflow-y-auto">
+                        {recurringEvents.map((ev) => {
+                          const next = nextEventDay(ev);
+                          return (
+                            <li
+                              key={ev.id}
+                              className="flex items-center gap-3 rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2.5 hover:bg-amber-50 transition-colors"
+                            >
+                              <span className="size-9 rounded-xl bg-white border border-amber-100 flex items-center justify-center text-base shrink-0" aria-hidden>
+                                📌
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-stone-800 truncate">{ev.title}</p>
+                                <p className="text-[10px] text-stone-400">
+                                  {RECURRENCE_LABELS[ev.recurrence as Recurrence]} • {fmtTime(ev.startAt)}
+                                  {ev.endAt ? ` – ${fmtTime(ev.endAt)}` : ''}
+                                </p>
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-white border border-amber-200 text-amber-700 shrink-0">
+                                {next ? relativeDayFromKey(next) : '—'}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              </FadeIn>
+
+              {/* Recurring financial commitments */}
+              <FadeIn delay={0.16}>
+                <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="flex items-center justify-between mb-1">
+                      <h2 className="font-bold text-stone-800 flex items-center gap-2">
+                        <span className="size-8 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center" aria-hidden>
+                          <Wallet className="size-4 text-emerald-600" />
+                        </span>
+                        التزاماتك المالية المتكررة
+                      </h2>
+                      {recurringMonthlyTotal > 0 ? (
+                        <span className="text-xs font-extrabold text-rose-600 tabular-nums">
+                          {fmtMoney(recurringMonthlyTotal)} ج/شهر
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-stone-400 mb-3">دي اللي بتتسحب منك كل شهر — سكرتير حاسبها في ميزانيتك.</p>
+                    {recurringExpenses.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-stone-400">
+                        مفيش التزامات متكررة — سجل فاتورة النت كمصروف متكرر وهنا هنا 💡
+                      </p>
+                    ) : (
+                      <ul className="space-y-2 sekretir-scroll max-h-72 overflow-y-auto">
+                        {recurringExpenses.map((x) => {
+                          const meta = CATEGORY_META[x.category];
+                          return (
+                            <li
+                              key={x.id}
+                              className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 px-3 py-2.5 hover:bg-emerald-50 transition-colors"
+                            >
+                              <span className="size-9 rounded-xl bg-white border border-emerald-100 flex items-center justify-center text-base shrink-0" aria-hidden>
+                                {meta.icon}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-stone-800 truncate">
+                                  {x.description || meta.label}
+                                </p>
+                                <p className="text-[10px] text-stone-400">
+                                  {x.recurrence ? RECURRENCE_LABELS[x.recurrence as Recurrence] : 'بتتكرر'}
+                                  {x.nextDueAt ? ` • الجاي ${relativeDay(x.nextDueAt)}` : ''}
+                                </p>
+                              </div>
+                              <span className="text-sm font-extrabold text-rose-600 tabular-nums shrink-0">
+                                −{fmtMoney(x.amount)} ج
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              </FadeIn>
+            </>
+          )}
+        </div>
       ) : (
       <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
         <CardContent className="p-4 sm:p-5">

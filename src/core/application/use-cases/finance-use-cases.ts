@@ -37,7 +37,7 @@ export interface FinanceSummaryDTO {
   dailyAverage: number;
   expenses: ExpenseDTO[];
   incomes: IncomeDTO[];
-  upcomingRecurring: { id: string; amount: number; category: ExpenseCategory; description: string | null; nextDueAt: string | null }[];
+  upcomingRecurring: { id: string; amount: number; category: ExpenseCategory; description: string | null; recurrence: Recurrence | null; nextDueAt: string | null }[];
 }
 
 export class FinanceUseCases {
@@ -85,6 +85,64 @@ export class FinanceUseCases {
   async deleteExpense(userId: string, id: string): Promise<void> {
     const ok = await this.finance.deleteExpense(userId, id);
     if (!ok) throw new ValidationError('المصروف ده مش موجود');
+  }
+
+  /** Edit an existing expense (amount/category/description/date) — BRD §19 corrections. */
+  async updateExpense(
+    userId: string,
+    id: string,
+    input: {
+      amount?: number;
+      category?: string | null;
+      description?: string | null;
+      date?: string | null;
+    }
+  ): Promise<ExpenseDTO> {
+    const data: {
+      amount?: number;
+      category?: ExpenseCategory;
+      description?: string | null;
+      date?: Date;
+    } = {};
+    if (input.amount !== undefined && input.amount !== null) {
+      data.amount = this.validateAmount(input.amount);
+    }
+    if (input.category !== undefined && input.category !== null && String(input.category).trim() !== '') {
+      const upper = String(input.category).toUpperCase();
+      if (!(EXPENSE_CATEGORIES as readonly string[]).includes(upper)) {
+        throw new ValidationError(`الفئة "${input.category}" مش معروفة`);
+      }
+      data.category = upper as ExpenseCategory;
+    }
+    if (input.description !== undefined) {
+      data.description = input.description?.trim() || null;
+    }
+    if (input.date) {
+      const parsed = this.parseDate(input.date);
+      if (!parsed) throw new ValidationError('التاريخ ده مش صحيح');
+      data.date = parsed;
+    }
+    if (Object.keys(data).length === 0) throw new ValidationError('مفيش حاجة تتعدل');
+    const updated = await this.finance.updateExpense(userId, id, data);
+    if (!updated) throw new ValidationError('المصروف ده مش موجود');
+    return serializeExpense(updated);
+  }
+
+  /** Fuzzy-match an expense by description against recent history (AI flows). */
+  async matchExpense(userId: string, needle: string): Promise<ExpenseRecord | null> {
+    if (!needle) return null;
+    const now = nowWall();
+    const from = new Date(now.getTime() - 60 * 86_400_000);
+    const expenses = await this.finance.listExpenses(userId, { from, to: now });
+    const target = needle.trim().toLowerCase();
+    if (!target) return null;
+    // Most recent first — listExpenses already sorts desc by date.
+    return (
+      expenses.find((e) => (e.description ?? '').toLowerCase() === target) ??
+      expenses.find((e) => (e.description ?? '').toLowerCase().includes(target)) ??
+      expenses.find((e) => target.includes((e.description ?? '').toLowerCase()) && (e.description ?? '').length >= 3) ??
+      null
+    );
   }
 
   async listIncomes(userId: string, monthKey?: string): Promise<IncomeDTO[]> {
@@ -203,8 +261,17 @@ export class FinanceUseCases {
       : daysInMonth;
     const dailyAverage = isCurrentMonth || monthSpent > 0 ? monthSpent / elapsedDays : 0;
 
-    const upcomingRecurring = expenses
-      .filter((e) => e.isRecurring && e.nextDueAt && e.nextDueAt > now)
+    // Recurring commitments regardless of browsed month (e.g. a bill
+    // created last month with nextDueAt in this month) — BRD §20.
+    const allRecurring = (await this.finance.listExpenses(userId, {})).filter(
+      (e) => e.isRecurring && e.nextDueAt && e.nextDueAt > now
+    );
+
+    const upcomingRecurring = [...new Map(
+      [...expenses, ...allRecurring]
+        .filter((e) => e.isRecurring && e.nextDueAt && e.nextDueAt > now)
+        .map((e) => [e.id, e] as const)
+    ).values()]
       .sort((a, b) => (a.nextDueAt?.getTime() ?? 0) - (b.nextDueAt?.getTime() ?? 0))
       .slice(0, 8)
       .map((e) => ({
@@ -212,6 +279,7 @@ export class FinanceUseCases {
         amount: e.amount,
         category: e.category,
         description: e.description,
+        recurrence: e.recurrence,
         nextDueAt: e.nextDueAt ? e.nextDueAt.toISOString() : null,
       }));
 

@@ -111,6 +111,13 @@ export interface CreateExpenseData {
   nextDueAt?: Date | null;
 }
 
+export interface UpdateExpenseData {
+  amount?: number;
+  category?: ExpenseRecord['category'];
+  description?: string | null;
+  date?: Date;
+}
+
 export interface CreateIncomeData {
   amount: number;
   source?: string | null;
@@ -121,6 +128,7 @@ export interface CreateIncomeData {
 export interface IFinanceRepository {
   listExpenses(userId: string, range?: DateRange): Promise<ExpenseRecord[]>;
   createExpense(userId: string, data: CreateExpenseData): Promise<ExpenseRecord>;
+  updateExpense(userId: string, id: string, data: UpdateExpenseData): Promise<ExpenseRecord | null>;
   deleteExpense(userId: string, id: string): Promise<boolean>;
   listIncomes(userId: string, range?: DateRange): Promise<IncomeRecord[]>;
   createIncome(userId: string, data: CreateIncomeData): Promise<IncomeRecord>;

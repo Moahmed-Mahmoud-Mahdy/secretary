@@ -216,6 +216,35 @@ export class AiChatUseCases {
         executed.push({ type: 'EXPENSE', action: 'CREATED', summary, refId: created.id });
         return;
       }
+      case 'UPDATE_EXPENSE': {
+        const name = str(action.expenseName) ?? str(action.description) ?? '';
+        const target = await this.financeUseCases.matchExpense(userId, name);
+        if (!target) {
+          executed.push({ type: 'EXPENSE', action: 'EXECUTED', summary: `ملقيتش مصروف باسم «${name || '؟'}» في آخر شهرين` });
+          return;
+        }
+        const newAmount = num(action.amount);
+        const newCategory = str(action.category);
+        if (newAmount === undefined && !newCategory) {
+          executed.push({ type: 'EXPENSE', action: 'EXECUTED', summary: `قولي أعدّل إيه في «${target.description ?? name}» — المبلغ ولا الفئة؟` });
+          return;
+        }
+        const updated = await this.financeUseCases.updateExpense(userId, target.id, {
+          amount: newAmount,
+          category: newCategory,
+        });
+        const changes: string[] = [];
+        if (newAmount !== undefined) changes.push(`بقى ${formatAmount(updated.amount)} جنيه`);
+        if (newCategory) changes.push(`اتنقل على ${CATEGORY_LABELS_AR[updated.category] ?? newCategory}`);
+        const descText = target.description || CATEGORY_LABELS_AR[updated.category] || 'المصروف';
+        executed.push({
+          type: 'EXPENSE',
+          action: 'EXECUTED',
+          summary: `عدّلت «${descText}» — ${changes.join(' و')}`,
+          refId: updated.id,
+        });
+        return;
+      }
       case 'CREATE_INCOME': {
         const amount = num(action.amount);
         if (!amount) throw new Error('income without amount');

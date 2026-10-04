@@ -1,0 +1,958 @@
+     1→'use client';
+     2→
+     3→import { useCallback, useEffect, useState } from 'react';
+     4→import {
+     5→  ArrowDownCircle,
+     6→  ArrowUpCircle,
+     7→  ChevronLeft,
+     8→  ChevronRight,
+     9→  Loader2,
+    10→  Pencil,
+    11→  Plus,
+    12→  Repeat,
+    13→  Target,
+    14→  Trash2,
+    15→  TrendingUp,
+    16→  Wallet,
+    17→} from 'lucide-react';
+    18→import { toast } from 'sonner';
+    19→import { Button } from '@/components/ui/button';
+    20→import { Card, CardContent } from '@/components/ui/card';
+    21→import { Input } from '@/components/ui/input';
+    22→import { Label } from '@/components/ui/label';
+    23→import {
+    24→  Dialog,
+    25→  DialogContent,
+    26→  DialogDescription,
+    27→  DialogFooter,
+    28→  DialogHeader,
+    29→  DialogTitle,
+    30→} from '@/components/ui/dialog';
+    31→import {
+    32→  Select,
+    33→  SelectContent,
+    34→  SelectItem,
+    35→  SelectTrigger,
+    36→  SelectValue,
+    37→} from '@/components/ui/select';
+    38→import { Skeleton } from '@/components/ui/skeleton';
+    39→import { Switch } from '@/components/ui/switch';
+    40→import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    41→import { SekretirProgress } from '@/components/sekretir/progress';
+    42→import {
+    43→  apiErrorMessage,
+    44→  endpoints,
+    45→  isAuthError,
+    46→  type ExpenseCategory,
+    47→  type FinanceSummaryDTO,
+    48→  type Recurrence,
+    49→} from '@/lib/sekretir/api';
+    50→import { CATEGORY_META, CATEGORY_OPTIONS, RECURRENCE_OPTIONS, fmtMoney } from '@/lib/sekretir/constants';
+    51→import { fmtDayMonth, monthLabel, relativeDay, shiftMonthKey, defaultDateInMonth, todayKey } from '@/lib/sekretir/date-utils';
+    52→import { cn } from '@/lib/utils';
+    53→
+    54→type TxTab = 'expenses' | 'incomes';
+    55→
+    56→interface FinanceViewProps {
+    57→  refreshKey: number;
+    58→  onAuthError: () => void;
+    59→}
+    60→
+    61→export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
+    62→  const [summary, setSummary] = useState<FinanceSummaryDTO | null>(null);
+    63→  const [loading, setLoading] = useState(true);
+    64→  const [tab, setTab] = useState<TxTab>('expenses');
+    65→
+    66→  // budget inline edit
+    67→  const [editingBudget, setEditingBudget] = useState(false);
+    68→  const [budgetDraft, setBudgetDraft] = useState('');
+    69→  const [savingBudget, setSavingBudget] = useState(false);
+    70→
+    71→  // add expense dialog
+    72→  const [expenseOpen, setExpenseOpen] = useState(false);
+    73→  const [expForm, setExpForm] = useState({
+    74→    amount: '',
+    75→    category: 'FOOD' as ExpenseCategory,
+    76→    description: '',
+    77→    date: '',
+    78→    isRecurring: false,
+    79→    recurrence: 'none',
+    80→  });
+    81→  const [addingExpense, setAddingExpense] = useState(false);
+    82→
+    83→  // add income dialog
+    84→  const [incomeOpen, setIncomeOpen] = useState(false);
+    85→  const [incForm, setIncForm] = useState({ amount: '', source: '', date: '' });
+    86→  const [addingIncome, setAddingIncome] = useState(false);
+    87→
+    88→  // per-category limits (BRD finance)
+    89→  const [limitForm, setLimitForm] = useState<{ category: string; amount: string }>({ category: '', amount: '' });
+    90→  const [savingLimit, setSavingLimit] = useState(false);
+    91→
+    92→  // copy last month's budget shortcut
+    93→  const [lastMonthBudget, setLastMonthBudget] = useState(0);
+    94→  const [copyingBudget, setCopyingBudget] = useState(false);
+    95→
+    96→  const [month, setMonth] = useState(todayKey().slice(0, 7));
+    97→  const currentMonth = todayKey().slice(0, 7);
+    98→  const isCurrentMonth = month === currentMonth;
+    99→  const isFutureMonth = month > currentMonth;
+   100→
+   101→  const load = useCallback(async () => {
+   102→    try {
+   103→      const data = await endpoints.financeSummary(month);
+   104→      setSummary(data);
+   105→    } catch (e) {
+   106→      if (isAuthError(e)) {
+   107→        onAuthError();
+   108→        return;
+   109→      }
+   110→      toast.error(apiErrorMessage(e));
+   111→    } finally {
+   112→      setLoading(false);
+   113→    }
+   114→  }, [month, onAuthError]);
+   115→
+   116→  useEffect(() => {
+   117→    void load();
+   118→  }, [load, refreshKey]);
+   119→
+   120→  // Load last month's budget (for the copy shortcut).
+   121→  const currentBudget = summary?.budget ?? 0;
+   122→  useEffect(() => {
+   123→    if (!isCurrentMonth || currentBudget > 0) return;
+   124→    let cancelled = false;
+   125→    endpoints
+   126→      .financeSummary(shiftMonthKey(month, -1))
+   127→      .then((s) => {
+   128→        if (!cancelled) setLastMonthBudget(s.budget ?? 0);
+   129→      })
+   130→      .catch(() => {
+   131→        /* non-fatal */
+   132→      });
+   133→    return () => {
+   134→      cancelled = true;
+   135→    };
+   136→  }, [month, isCurrentMonth, currentBudget]);
+   137→
+   138→  async function copyLastMonthBudget() {
+   139→    if (copyingBudget || lastMonthBudget <= 0) return;
+   140→    setCopyingBudget(true);
+   141→    try {
+   142→      await endpoints.setBudget(lastMonthBudget);
+   143→      toast.success('اتنسخت ميزانية الشهر اللي فات 💰');
+   144→      await load();
+   145→    } catch (e) {
+   146→      toast.error(apiErrorMessage(e));
+   147→    } finally {
+   148→      setCopyingBudget(false);
+   149→    }
+   150→  }
+   151→
+   152→  const budget = summary?.budget ?? 0;
+   153→  const monthSpent = summary?.monthSpent ?? 0;
+   154→  const remaining = summary?.remaining ?? 0;
+   155→  const spentPct = budget > 0 ? (monthSpent / budget) * 100 : 0;
+   156→  const barColor = spentPct < 60 ? 'bg-emerald-500' : spentPct < 90 ? 'bg-amber-500' : 'bg-rose-500';
+   157→  const maxCat = Math.max(1, ...(summary?.byCategory ?? []).map((c) => c.total));
+   158→
+   159→  async function saveBudget() {
+   160→    const amount = Number(budgetDraft);
+   161→    if (!amount || amount <= 0 || savingBudget) return;
+   162→    setSavingBudget(true);
+   163→    try {
+   164→      await endpoints.setBudget(amount);
+   165→      setEditingBudget(false);
+   166→      toast.success('الميزانية اتحددت 💰');
+   167→      await load();
+   168→    } catch (e) {
+   169→      toast.error(apiErrorMessage(e));
+   170→    } finally {
+   171→      setSavingBudget(false);
+   172→    }
+   173→  }
+   174→
+   175→  async function saveCategoryLimit(categoryRaw?: string, remove = false) {
+   176→    const category = categoryRaw ?? limitForm.category;
+   177→    if (!category || savingLimit) return;
+   178→    const amount = remove ? 0 : Number(limitForm.amount);
+   179→    if (!remove && (!amount || amount <= 0)) return;
+   180→    setSavingLimit(true);
+   181→    try {
+   182→      await endpoints.setCategoryLimit(category, amount, month);
+   183→      toast.success(remove ? 'اتشال الحد ✅' : 'حد الفئة اتحدد 🎯');
+   184→      setLimitForm({ category: '', amount: '' });
+   185→      await load();
+   186→    } catch (e) {
+   187→      toast.error(apiErrorMessage(e));
+   188→    } finally {
+   189→      setSavingLimit(false);
+   190→    }
+   191→  }
+   192→
+   193→  async function addExpense() {
+   194→    const amount = Number(expForm.amount);
+   195→    if (!amount || amount <= 0 || addingExpense) return;
+   196→    setAddingExpense(true);
+   197→    try {
+   198→      await endpoints.createExpense({
+   199→        amount,
+   200→        category: expForm.category,
+   201→        description: expForm.description.trim() || null,
+   202→        date: expForm.date || todayKey(),
+   203→        isRecurring: expForm.isRecurring,
+   204→        recurrence:
+   205→          expForm.isRecurring && expForm.recurrence !== 'none'
+   206→            ? (expForm.recurrence as Recurrence)
+   207→            : null,
+   208→      });
+   209→      setExpenseOpen(false);
+   210→      toast.success('سجلت المصروف 💸');
+   211→      await load();
+   212→    } catch (e) {
+   213→      toast.error(apiErrorMessage(e));
+   214→    } finally {
+   215→      setAddingExpense(false);
+   216→    }
+   217→  }
+   218→
+   219→  async function addIncome() {
+   220→    const amount = Number(incForm.amount);
+   221→    if (!amount || amount <= 0 || addingIncome) return;
+   222→    setAddingIncome(true);
+   223→    try {
+   224→      await endpoints.createIncome({
+   225→        amount,
+   226→        source: incForm.source.trim() || null,
+   227→        date: incForm.date || todayKey(),
+   228→      });
+   229→      setIncomeOpen(false);
+   230→      toast.success('سجلت الدخل 💵');
+   231→      await load();
+   232→    } catch (e) {
+   233→      toast.error(apiErrorMessage(e));
+   234→    } finally {
+   235→      setAddingIncome(false);
+   236→    }
+   237→  }
+   238→
+   239→  async function deleteExpense(id: string) {
+   240→    try {
+   241→      await endpoints.deleteExpense(id);
+   242→      setSummary((prev) =>
+   243→        prev
+   244→          ? {
+   245→              ...prev,
+   246→              expenses: prev.expenses.filter((x) => x.id !== id),
+   247→            }
+   248→          : prev
+   249→      );
+   250→      toast.success('اتمسح ✅');
+   251→      await load();
+   252→    } catch (e) {
+   253→      toast.error(apiErrorMessage(e));
+   254→    }
+   255→  }
+   256→
+   257→  async function deleteIncome(id: string) {
+   258→    try {
+   259→      await endpoints.deleteIncome(id);
+   260→      setSummary((prev) => (prev ? { ...prev, incomes: prev.incomes.filter((x) => x.id !== id) } : prev));
+   261→      toast.success('اتمسح ✅');
+   262→      await load();
+   263→    } catch (e) {
+   264→      toast.error(apiErrorMessage(e));
+   265→    }
+   266→  }
+   267→
+   268→  if (loading) {
+   269→    return (
+   270→      <div className="space-y-4">
+   271→        <Skeleton className="h-48 rounded-2xl" />
+   272→        <Skeleton className="h-32 rounded-2xl" />
+   273→        <Skeleton className="h-64 rounded-2xl" />
+   274→      </div>
+   275→    );
+   276→  }
+   277→
+   278→  return (
+   279→    <div className="space-y-4">
+   280→      <div className="flex items-center justify-between flex-wrap gap-2">
+   281→        <div className="flex items-center gap-2">
+   282→          <h1 className="text-xl font-extrabold text-stone-900">الفلوس</h1>
+   283→          {/* Month navigation (right = back in time, matching calendar) */}
+   284→          <div className="flex items-center gap-0.5 rounded-full border border-stone-200 bg-white px-1 py-0.5">
+   285→            <button
+   286→              type="button"
+   287→              onClick={() => setMonth(shiftMonthKey(month, -1))}
+   288→              className="p-1 rounded-full text-stone-500 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+   289→              aria-label="الشهر اللي فات"
+   290→            >
+   291→              <ChevronRight className="size-4" />
+   292→            </button>
+   293→            <span className="text-xs font-bold text-stone-700 tabular-nums min-w-[88px] text-center">
+   294→              {monthLabel(month)}
+   295→            </span>
+   296→            <button
+   297→              type="button"
+   298→              onClick={() => setMonth(shiftMonthKey(month, 1))}
+   299→              disabled={isFutureMonth}
+   300→              className="p-1 rounded-full text-stone-500 hover:bg-amber-50 hover:text-amber-700 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+   301→              aria-label="الشهر الجاي"
+   302→            >
+   303→              <ChevronLeft className="size-4" />
+   304→            </button>
+   305→          </div>
+   306→          {!isCurrentMonth ? (
+   307→            <button
+   308→              type="button"
+   309→              onClick={() => setMonth(currentMonth)}
+   310→              className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-full px-2.5 py-1 transition-colors"
+   311→            >
+   312→              رجوع لحدود النهارده
+   313→            </button>
+   314→          ) : null}
+   315→        </div>
+   316→        <div className="flex gap-2">
+   317→          <Button
+   318→            variant="outline"
+   319→            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 rounded-full"
+   320→            onClick={() => {
+   321→              setIncForm({ amount: '', source: '', date: defaultDateInMonth(month) });
+   322→              setIncomeOpen(true);
+   323→            }}
+   324→          >
+   325→            <ArrowUpCircle className="size-4" />
+   326→            ضيف دخل
+   327→          </Button>
+   328→        </div>
+   329→      </div>
+   330→
+   331→      {/* Budget card */}
+   332→      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 sekretir-rise">
+   333→        <CardContent className="p-4 sm:p-6">
+   334→          <div className="flex items-center justify-between mb-3">
+   335→            <h2 className="font-bold text-stone-800 flex items-center gap-2">
+   336→              <Wallet className="size-5 text-amber-600" />
+   337→              ميزانية {monthLabel(month)}
+   338→            </h2>
+   339→            {editingBudget ? (
+   340→              <div className="flex items-center gap-1.5">
+   341→                <Input
+   342→                  type="number"
+   343→                  min={0}
+   344→                  dir="ltr"
+   345→                  value={budgetDraft}
+   346→                  onChange={(e) => setBudgetDraft(e.target.value)}
+   347→                  onKeyDown={(e) => {
+   348→                    if (e.key === 'Enter') saveBudget();
+   349→                  }}
+   350→                  className="h-8 w-28 text-sm"
+   351→                  aria-label="الميزانية الجديدة"
+   352→                  autoFocus
+   353→                />
+   354→                <Button
+   355→                  size="sm"
+   356→                  className="h-8 bg-amber-600 hover:bg-amber-700 text-white"
+   357→                  onClick={saveBudget}
+   358→                  disabled={savingBudget}
+   359→                >
+   360→                  {savingBudget ? <Loader2 className="size-3.5 animate-spin" /> : 'حفظ'}
+   361→                </Button>
+   362→                <Button variant="ghost" size="sm" className="h-8" onClick={() => setEditingBudget(false)}>
+   363→                  إلغاء
+   364→                </Button>
+   365→              </div>
+   366→            ) : isCurrentMonth ? (
+   367→              <Button
+   368→                variant="ghost"
+   369→                size="sm"
+   370→                className="h-8 text-stone-400 hover:text-amber-700 hover:bg-amber-50"
+   371→                onClick={() => {
+   372→                  setBudgetDraft(budget ? String(budget) : '');
+   373→                  setEditingBudget(true);
+   374→                }}
+   375→                aria-label="عدّل الميزانية"
+   376→              >
+   377→                <Pencil className="size-3.5" />
+   378→                عدّل
+   379→              </Button>
+   380→            ) : (
+   381→              <span className="text-[11px] text-stone-400">ميزانية الشهور اللي فاتت للعرض بس</span>
+   382→            )}
+   383→          </div>
+   384→
+   385→          <div className="flex items-end justify-between flex-wrap gap-2">
+   386→            <div>
+   387→              <p
+   388→                className={cn(
+   389→                  'text-4xl font-extrabold tabular-nums leading-tight',
+   390→                  remaining <= 0 ? 'text-rose-600' : 'text-emerald-600'
+   391→                )}
+   392→              >
+   393→                {fmtMoney(remaining)} <span className="text-lg">ج</span>
+   394→              </p>
+   395→              <p className="text-xs text-stone-500 mt-0.5">باقي معاك من ميزانية الشهر</p>
+   396→            </div>
+   397→            <p className="text-sm text-stone-500 tabular-nums">
+   398→              صرفت <span className="font-bold text-rose-600">{fmtMoney(monthSpent)} ج</span> من{' '}
+   399→              {budget ? `${fmtMoney(budget)} ج` : '—'}
+   400→            </p>
+   401→          </div>
+   402→
+   403→          {budget > 0 ? (
+   404→            <SekretirProgress
+   405→              value={spentPct}
+   406→              className="mt-3"
+   407→              barClassName={barColor}
+   408→              ariaLabel="نسبة الصرف من الميزانية"
+   409→            />
+   410→          ) : (
+   411→            <div className="mt-3">
+   412→              <p className="text-sm text-stone-400">
+   413→                لسه محددتش ميزانية — دوس «عدّل» واكتب ميزانيتك للشهر 💰
+   414→              </p>
+   415→              {isCurrentMonth && lastMonthBudget > 0 ? (
+   416→                <button
+   417→                  type="button"
+   418→                  onClick={() => void copyLastMonthBudget()}
+   419→                  disabled={copyingBudget}
+   420→                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-60"
+   421→                >
+   422→                  {copyingBudget ? (
+   423→                    <Loader2 className="size-3.5 animate-spin" />
+   424→                  ) : (
+   425→                    <Repeat className="size-3.5" />
+   426→                  )}
+   427→                  انسخ ميزانية الشهر اللي فات ({fmtMoney(lastMonthBudget)} ج)
+   428→                </button>
+   429→              ) : null}
+   430→            </div>
+   431→          )}
+   432→
+   433→          {/* Stats row */}
+   434→          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+   435→            <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2 text-center">
+   436→              <p className="text-[10px] text-stone-400">صرفت الشهر</p>
+   437→              <p className="text-sm font-extrabold text-rose-600 tabular-nums">
+   438→                {fmtMoney(monthSpent)} ج
+   439→              </p>
+   440→            </div>
+   441→            <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2 text-center">
+   442→              <p className="text-[10px] text-stone-400">{isCurrentMonth ? 'النهارده' : 'عدد العمليات'}</p>
+   443→              <p
+   444→                className={cn(
+   445→                  'text-sm font-extrabold tabular-nums',
+   446→                  isCurrentMonth ? 'text-rose-600' : 'text-stone-700'
+   447→                )}
+   448→              >
+   449→                {isCurrentMonth
+   450→                  ? `${fmtMoney(summary?.spentToday)} ج`
+   451→                  : (summary?.expenses.length ?? 0)}
+   452→              </p>
+   453→            </div>
+   454→            <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2 text-center">
+   455→              <p className="text-[10px] text-stone-400">متوسط يومي</p>
+   456→              <p className="text-sm font-extrabold text-amber-700 tabular-nums">
+   457→                {fmtMoney(summary?.dailyAverage)} ج
+   458→              </p>
+   459→            </div>
+   460→            <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2 text-center">
+   461→              <p className="text-[10px] text-stone-400">دخل الشهر</p>
+   462→              <p className="text-sm font-extrabold text-emerald-600 tabular-nums">
+   463→                {fmtMoney(summary?.incomeThisMonth)} ج
+   464→              </p>
+   465→            </div>
+   466→          </div>
+   467→        </CardContent>
+   468→      </Card>
+   469→
+   470→      {/* Category breakdown */}
+   471→      {summary && summary.byCategory.length > 0 ? (
+   472→        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   473→          <CardContent className="p-4 sm:p-5">
+   474→            <h2 className="font-bold text-stone-800 mb-3">صرفت في إيه؟</h2>
+   475→            <ul className="space-y-3">
+   476→              {summary.byCategory.map((c) => {
+   477→                const meta = CATEGORY_META[c.category];
+   478→                const limit = summary.categoryLimits.find((cl) => cl.category === c.category);
+   479→                return (
+   480→                  <li key={c.category}>
+   481→                    <div className="flex items-center justify-between text-xs mb-1">
+   482→                      <span className="font-semibold text-stone-600">
+   483→                        {meta.icon} {meta.label}
+   484→                        {limit ? (
+   485→                          <span className="text-[10px] text-stone-400 font-normal"> (حد {fmtMoney(limit.limit)} ج)</span>
+   486→                        ) : null}
+   487→                      </span>
+   488→                      <span
+   489→                        className={cn(
+   490→                          'font-bold tabular-nums',
+   491→                          limit && limit.over ? 'text-rose-600' : 'text-stone-700'
+   492→                        )}
+   493→                      >
+   494→                        {fmtMoney(c.total)} ج
+   495→                      </span>
+   496→                    </div>
+   497→                    <SekretirProgress
+   498→                      value={(c.total / maxCat) * 100}
+   499→                      className="h-2"
+   500→                      barClassName={
+   501→                        limit && limit.over
+   502→                          ? 'bg-rose-500'
+   503→                          : c.category === 'FOOD'
+   504→                            ? 'bg-amber-500'
+   505→                            : 'bg-stone-400'
+   506→                      }
+   507→                      ariaLabel={`مصاريف ${meta.label}`}
+   508→                    />
+   509→                  </li>
+   510→                );
+   511→              })}
+   512→            </ul>
+   513→          </CardContent>
+   514→        </Card>
+   515→      ) : null}
+   516→
+   517→      {/* Category limits (per-category budgets) */}
+   518→      {summary ? (
+   519→        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   520→          <CardContent className="p-4 sm:p-5">
+   521→            <h2 className="font-bold text-stone-800 flex items-center gap-2 mb-1">
+   522→              <Target className="size-4 text-amber-600" />
+   523→              حدود الفئات
+   524→            </h2>
+   525→            <p className="text-[11px] text-stone-400 mb-3">
+   526→              حدد سقف صرف لكل فئة وسكرتير ينبّهك قبل ما تعديها
+   527→            </p>
+   528→
+   529→            {summary.categoryLimits.length > 0 ? (
+   530→              <ul className="space-y-3 mb-4">
+   531→                {summary.categoryLimits.map((cl) => {
+   532→                  const meta = CATEGORY_META[cl.category];
+   533→                  const barColor = cl.over ? 'bg-rose-500' : cl.pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
+   534→                  return (
+   535→                    <li key={cl.category} className={cn('rounded-xl border px-3 py-2.5', cl.over ? 'border-rose-200 bg-rose-50/50' : 'border-stone-100 bg-stone-50/60')}>
+   536→                      <div className="flex items-center justify-between text-xs mb-1.5 gap-2">
+   537→                        <span className="font-semibold text-stone-700 flex items-center gap-1.5 min-w-0">
+   538→                          <span aria-hidden>{meta.icon}</span>
+   539→                          <span className="truncate">{meta.label}</span>
+   540→                          {cl.over ? (
+   541→                            <span className="shrink-0 rounded-full bg-rose-100 text-rose-700 px-1.5 py-0.5 text-[10px] font-bold">
+   542→                              عدّيت الحد!
+   543→                            </span>
+   544→                          ) : cl.pct >= 80 ? (
+   545→                            <span className="shrink-0 rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-bold">
+   546→                              قربت
+   547→                            </span>
+   548→                          ) : null}
+   549→                        </span>
+   550→                        <span className={cn('font-bold tabular-nums shrink-0', cl.over ? 'text-rose-600' : 'text-stone-600')}>
+   551→                          {fmtMoney(cl.spent)} / {fmtMoney(cl.limit)} ج
+   552→                        </span>
+   553→                      </div>
+   554→                      <div className="flex items-center gap-2">
+   555→                        <SekretirProgress
+   556→                          value={cl.pct}
+   557→                          className="h-2 flex-1"
+   558→                          barClassName={barColor}
+   559→                          ariaLabel={`حد ${meta.label}`}
+   560→                        />
+   561→                        <button
+   562→                          type="button"
+   563→                          onClick={() => setLimitForm({ category: cl.category, amount: String(cl.limit) })}
+   564→                          className="shrink-0 rounded-full p-1 text-stone-400 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+   565→                          aria-label={`عدل حد ${meta.label}`}
+   566→                        >
+   567→                          <Pencil className="size-3.5" />
+   568→                        </button>
+   569→                        <button
+   570→                          type="button"
+   571→                          onClick={() => void saveCategoryLimit(cl.category, true)}
+   572→                          className="shrink-0 rounded-full p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+   573→                          aria-label={`شيل حد ${meta.label}`}
+   574→                        >
+   575→                          <Trash2 className="size-3.5" />
+   576→                        </button>
+   577→                      </div>
+   578→                    </li>
+   579→                  );
+   580→                })}
+   581→              </ul>
+   582→            ) : (
+   583→              <p className="text-xs text-stone-400 mb-4">لسه مفيش حدود — اختار فئة واكتب سقف صرفها للشهر.</p>
+   584→            )}
+   585→
+   586→            {/* add / update limit row */}
+   587→            {isCurrentMonth ? (
+   588→              <div className="flex items-center gap-2 flex-wrap">
+   589→                <Select
+   590→                  value={limitForm.category}
+   591→                  onValueChange={(v) => setLimitForm((f) => ({ ...f, category: v }))}
+   592→                  dir="rtl"
+   593→                >
+   594→                  <SelectTrigger className="w-[140px] h-9 rounded-xl text-xs bg-white" aria-label="اختار الفئة">
+   595→                    <SelectValue placeholder="فئة…" />
+   596→                  </SelectTrigger>
+   597→                  <SelectContent dir="rtl">
+   598→                    {CATEGORY_OPTIONS.filter((o) => !summary.categoryLimits.some((cl) => cl.category === o.value) || limitForm.category === o.value).map((o) => (
+   599→                      <SelectItem key={o.value} value={o.value}>
+   600→                        {o.label}
+   601→                      </SelectItem>
+   602→                    ))}
+   603→                  </SelectContent>
+   604→                </Select>
+   605→                <Input
+   606→                  value={limitForm.amount}
+   607→                  onChange={(e) => setLimitForm((f) => ({ ...f, amount: e.target.value }))}
+   608→                  type="number"
+   609→                  inputMode="numeric"
+   610→                  min="1"
+   611→                  placeholder="الحد (ج)"
+   612→                  className="flex-1 min-w-[100px] h-9 rounded-xl text-sm"
+   613→                  aria-label="مبلغ حد الفئة"
+   614→                />
+   615→                <Button
+   616→                  size="sm"
+   617→                  onClick={() => void saveCategoryLimit()}
+   618→                  disabled={!limitForm.category || !limitForm.amount || Number(limitForm.amount) <= 0 || savingLimit}
+   619→                  className="h-9 rounded-xl bg-amber-600 hover:bg-amber-700 text-white gap-1"
+   620→                >
+   621→                  {savingLimit ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+   622→                  حدد
+   623→                </Button>
+   624→              </div>
+   625→            ) : (
+   626→              <p className="text-xs text-stone-400">تعديل الحدود متاح في الشهر الحالي بس (الشهر ده للعرض بس).</p>
+   627→            )}
+   628→          </CardContent>
+   629→        </Card>
+   630→      ) : null}
+   631→
+   632→      {/* Upcoming recurring */}
+   633→      {summary && summary.upcomingRecurring.length > 0 ? (
+   634→        <Card className="bg-white border border-amber-100 rounded-2xl shadow-sm">
+   635→          <CardContent className="p-4 sm:p-5">
+   636→            <h2 className="font-bold text-stone-800 flex items-center gap-2 mb-3">
+   637→              <Repeat className="size-4 text-amber-600" />
+   638→              متوقع عليك
+   639→            </h2>
+   640→            <ul className="space-y-2">
+   641→              {summary.upcomingRecurring.map((r) => {
+   642→                const meta = CATEGORY_META[r.category];
+   643→                return (
+   644→                  <li
+   645→                    key={r.id}
+   646→                    className="flex items-center gap-2.5 rounded-xl bg-amber-50/60 border border-amber-100 px-3 py-2"
+   647→                  >
+   648→                    <span aria-hidden className="text-lg shrink-0">{meta.icon}</span>
+   649→                    <div className="flex-1 min-w-0">
+   650→                      <p className="text-sm font-semibold text-stone-800 truncate">
+   651→                        {r.description ?? meta.label}
+   652→                      </p>
+   653→                      <p className="text-[10px] text-stone-500">
+   654→                        المعاد: {relativeDay(r.nextDueAt)} — {fmtDayMonth(r.nextDueAt)}
+   655→                      </p>
+   656→                    </div>
+   657→                    <span className="text-sm font-extrabold text-rose-600 tabular-nums shrink-0">
+   658→                      {fmtMoney(r.amount)} ج
+   659→                    </span>
+   660→                  </li>
+   661→                );
+   662→              })}
+   663→            </ul>
+   664→          </CardContent>
+   665→        </Card>
+   666→      ) : null}
+   667→
+   668→      {/* Transactions */}
+   669→      <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+   670→        <CardContent className="p-4 sm:p-5">
+   671→          <Tabs value={tab} onValueChange={(v) => setTab(v as TxTab)} dir="rtl">
+   672→            <div className="flex items-center justify-between gap-2 mb-3">
+   673→              <TabsList>
+   674→                <TabsTrigger value="expenses" className="px-4">
+   675→                  مصروفات
+   676→                </TabsTrigger>
+   677→                <TabsTrigger value="incomes" className="px-4">
+   678→                  دخل
+   679→                </TabsTrigger>
+   680→              </TabsList>
+   681→              <span className="text-xs text-stone-400">{fmtDayMonth(`${month}-01`)}</span>
+   682→            </div>
+   683→
+   684→            {tab === 'expenses' ? (
+   685→              summary && summary.expenses.length > 0 ? (
+   686→                <ul className="divide-y divide-stone-50 sekretir-scroll max-h-96 overflow-y-auto">
+   687→                  {[...summary.expenses]
+   688→                    .sort((a, b) => b.date.localeCompare(a.date))
+   689→                    .map((x) => {
+   690→                      const meta = CATEGORY_META[x.category];
+   691→                      return (
+   692→                        <li key={x.id} className="flex items-center gap-3 py-2.5">
+   693→                          <span
+   694→                            className="size-9 rounded-xl bg-stone-50 border border-stone-100 flex items-center justify-center text-base shrink-0"
+   695→                            aria-hidden
+   696→                          >
+   697→                            {meta.icon}
+   698→                          </span>
+   699→                          <div className="flex-1 min-w-0">
+   700→                            <p className="text-sm font-semibold text-stone-800 truncate">
+   701→                              {x.description || meta.label}
+   702→                            </p>
+   703→                            <p className="text-[10px] text-stone-400">
+   704→                              {fmtDayMonth(x.date)}
+   705→                              {x.isRecurring ? ' • 🔁 متكرر' : ''}
+   706→                            </p>
+   707→                          </div>
+   708→                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 shrink-0 hidden sm:block">
+   709→                            {meta.icon} {meta.label}
+   710→                          </span>
+   711→                          <span className="text-sm font-extrabold text-rose-600 tabular-nums shrink-0">
+   712→                            −{fmtMoney(x.amount)} ج
+   713→                          </span>
+   714→                          <Button
+   715→                            variant="ghost"
+   716→                            size="icon"
+   717→                            className="size-7 text-stone-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+   718→                            onClick={() => deleteExpense(x.id)}
+   719→                            aria-label="امسح المصروف"
+   720→                          >
+   721→                            <Trash2 className="size-3.5" />
+   722→                          </Button>
+   723→                        </li>
+   724→                      );
+   725→                    })}
+   726→                </ul>
+   727→              ) : (
+   728→                <p className="py-8 text-center text-sm text-stone-400">
+   729→                  مفيش مصاريف مسجلة الشهر ده 👏
+   730→                </p>
+   731→              )
+   732→            ) : summary && summary.incomes.length > 0 ? (
+   733→              <ul className="divide-y divide-stone-50 sekretir-scroll max-h-96 overflow-y-auto">
+   734→                {[...summary.incomes]
+   735→                  .sort((a, b) => b.date.localeCompare(a.date))
+   736→                  .map((x) => (
+   737→                    <li key={x.id} className="flex items-center gap-3 py-2.5">
+   738→                      <span
+   739→                        className="size-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0"
+   740→                        aria-hidden
+   741→                      >
+   742→                        <TrendingUp className="size-4 text-emerald-600" />
+   743→                      </span>
+   744→                      <div className="flex-1 min-w-0">
+   745→                        <p className="text-sm font-semibold text-stone-800 truncate">
+   746→                          {x.source || 'دخل'}
+   747→                        </p>
+   748→                        <p className="text-[10px] text-stone-400">{fmtDayMonth(x.date)}</p>
+   749→                      </div>
+   750→                      <span className="text-sm font-extrabold text-emerald-600 tabular-nums shrink-0">
+   751→                        +{fmtMoney(x.amount)} ج
+   752→                      </span>
+   753→                      <Button
+   754→                        variant="ghost"
+   755→                        size="icon"
+   756→                        className="size-7 text-stone-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
+   757→                        onClick={() => deleteIncome(x.id)}
+   758→                        aria-label="امسح الدخل"
+   759→                      >
+   760→                        <Trash2 className="size-3.5" />
+   761→                      </Button>
+   762→                    </li>
+   763→                  ))}
+   764→              </ul>
+   765→            ) : (
+   766→              <p className="py-8 text-center text-sm text-stone-400">مفيش دخل مسجل الشهر ده 😅</p>
+   767→            )}
+   768→          </Tabs>
+   769→        </CardContent>
+   770→      </Card>
+   771→
+   772→      {/* Floating add expense button */}
+   773→      <Button
+   774→        className="fixed bottom-20 md:bottom-6 end-4 md:end-6 z-30 rounded-full bg-amber-600 hover:bg-amber-700 text-white shadow-lg px-5 h-12 active:scale-95 transition-transform"
+   775→        onClick={() => {
+   776→          setExpForm({
+   777→            amount: '',
+   778→            category: 'FOOD',
+   779→            description: '',
+   780→            date: defaultDateInMonth(month),
+   781→            isRecurring: false,
+   782→            recurrence: 'none',
+   783→          });
+   784→          setExpenseOpen(true);
+   785→        }}
+   786→      >
+   787→        <Plus className="size-5" />
+   788→        ضيف مصروف
+   789→      </Button>
+   790→
+   791→      {/* Add expense dialog */}
+   792→      <Dialog open={expenseOpen} onOpenChange={setExpenseOpen}>
+   793→        <DialogContent className="rounded-2xl max-h-[90dvh] overflow-y-auto sekretir-scroll">
+   794→          <DialogHeader>
+   795→            <DialogTitle>مصروف جديد 💸</DialogTitle>
+   796→            <DialogDescription>سجل اللي صرفته — سكرتير هيحسبه معاك.</DialogDescription>
+   797→          </DialogHeader>
+   798→          <div className="space-y-4 py-1">
+   799→            <div className="grid grid-cols-2 gap-3">
+   800→              <div className="space-y-2">
+   801→                <Label htmlFor="exp-amount">المبلغ (جنيه)</Label>
+   802→                <Input
+   803→                  id="exp-amount"
+   804→                  type="number"
+   805→                  min={0}
+   806→                  dir="ltr"
+   807→                  value={expForm.amount}
+   808→                  onChange={(e) => setExpForm((f) => ({ ...f, amount: e.target.value }))}
+   809→                  placeholder="50"
+   810→                />
+   811→              </div>
+   812→              <div className="space-y-2">
+   813→                <Label htmlFor="exp-date">اليوم</Label>
+   814→                <Input
+   815→                  id="exp-date"
+   816→                  type="date"
+   817→                  dir="ltr"
+   818→                  value={expForm.date}
+   819→                  onChange={(e) => setExpForm((f) => ({ ...f, date: e.target.value }))}
+   820→                />
+   821→              </div>
+   822→            </div>
+   823→            <div className="space-y-2">
+   824→              <Label>التصنيف</Label>
+   825→              <Select
+   826→                value={expForm.category}
+   827→                onValueChange={(v) => setExpForm((f) => ({ ...f, category: v as ExpenseCategory }))}
+   828→              >
+   829→                <SelectTrigger className="w-full">
+   830→                  <SelectValue />
+   831→                </SelectTrigger>
+   832→                <SelectContent>
+   833→                  {CATEGORY_OPTIONS.map((c) => (
+   834→                    <SelectItem key={c.value} value={c.value}>
+   835→                      {c.label}
+   836→                    </SelectItem>
+   837→                  ))}
+   838→                </SelectContent>
+   839→              </Select>
+   840→            </div>
+   841→            <div className="space-y-2">
+   842→              <Label htmlFor="exp-desc">وصف</Label>
+   843→              <Input
+   844→                id="exp-desc"
+   845→                value={expForm.description}
+   846→                onChange={(e) => setExpForm((f) => ({ ...f, description: e.target.value }))}
+   847→                placeholder="مثلاً: فطار من الشارع"
+   848→              />
+   849→            </div>
+   850→            <div className="flex items-center justify-between rounded-xl bg-stone-50 border border-stone-100 px-3 py-2.5">
+   851→              <div>
+   852→                <p className="text-sm font-semibold text-stone-700">مصروف متكرر</p>
+   853→                <p className="text-[10px] text-stone-400">زي فاتورة النت كل شهر</p>
+   854→              </div>
+   855→              <Switch
+   856→                checked={expForm.isRecurring}
+   857→                onCheckedChange={(v) => setExpForm((f) => ({ ...f, isRecurring: v }))}
+   858→                aria-label="مصروف متكرر"
+   859→              />
+   860→            </div>
+   861→            {expForm.isRecurring ? (
+   862→              <div className="space-y-2">
+   863→                <Label>يتكرر امتى؟</Label>
+   864→                <Select
+   865→                  value={expForm.recurrence}
+   866→                  onValueChange={(v) => setExpForm((f) => ({ ...f, recurrence: v }))}
+   867→                >
+   868→                  <SelectTrigger className="w-full">
+   869→                    <SelectValue />
+   870→                  </SelectTrigger>
+   871→                  <SelectContent>
+   872→                    {RECURRENCE_OPTIONS.map((r) => (
+   873→                      <SelectItem key={r.value} value={r.value}>
+   874→                        🔁 {r.label}
+   875→                      </SelectItem>
+   876→                    ))}
+   877→                  </SelectContent>
+   878→                </Select>
+   879→              </div>
+   880→            ) : null}
+   881→          </div>
+   882→          <DialogFooter className="gap-2">
+   883→            <Button variant="outline" onClick={() => setExpenseOpen(false)}>
+   884→              إلغاء
+   885→            </Button>
+   886→            <Button
+   887→              className="bg-amber-600 hover:bg-amber-700 text-white"
+   888→              onClick={addExpense}
+   889→              disabled={addingExpense || !expForm.amount}
+   890→            >
+   891→              {addingExpense ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+   892→              سجل المصروف
+   893→            </Button>
+   894→          </DialogFooter>
+   895→        </DialogContent>
+   896→      </Dialog>
+   897→
+   898→      {/* Add income dialog */}
+   899→      <Dialog open={incomeOpen} onOpenChange={setIncomeOpen}>
+   900→        <DialogContent className="rounded-2xl max-w-sm">
+   901→          <DialogHeader>
+   902→            <DialogTitle>دخل جديد 💵</DialogTitle>
+   903→            <DialogDescription>مرتب، مشروع، أي فلوس داخلك.</DialogDescription>
+   904→          </DialogHeader>
+   905→          <div className="space-y-4 py-1">
+   906→            <div className="grid grid-cols-2 gap-3">
+   907→              <div className="space-y-2">
+   908→                <Label htmlFor="inc-amount">المبلغ (جنيه)</Label>
+   909→                <Input
+   910→                  id="inc-amount"
+   911→                  type="number"
+   912→                  min={0}
+   913→                  dir="ltr"
+   914→                  value={incForm.amount}
+   915→                  onChange={(e) => setIncForm((f) => ({ ...f, amount: e.target.value }))}
+   916→                  placeholder="5000"
+   917→                />
+   918→              </div>
+   919→              <div className="space-y-2">
+   920→                <Label htmlFor="inc-date">اليوم</Label>
+   921→                <Input
+   922→                  id="inc-date"
+   923→                  type="date"
+   924→                  dir="ltr"
+   925→                  value={incForm.date}
+   926→                  onChange={(e) => setIncForm((f) => ({ ...f, date: e.target.value }))}
+   927→                />
+   928→              </div>
+   929→            </div>
+   930→            <div className="space-y-2">
+   931→              <Label htmlFor="inc-source">المنبع</Label>
+   932→              <Input
+   933→                id="inc-source"
+   934→                value={incForm.source}
+   935→                onChange={(e) => setIncForm((f) => ({ ...f, source: e.target.value }))}
+   936→                placeholder="مثلاً: مرتب الشهر"
+   937→              />
+   938→            </div>
+   939→          </div>
+   940→          <DialogFooter className="gap-2">
+   941→            <Button variant="outline" onClick={() => setIncomeOpen(false)}>
+   942→              إلغاء
+   943→            </Button>
+   944→            <Button
+   945→              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+   946→              onClick={addIncome}
+   947→              disabled={addingIncome || !incForm.amount}
+   948→            >
+   949→              {addingIncome ? <Loader2 className="size-4 animate-spin" /> : <ArrowDownCircle className="size-4" />}
+   950→              سجل الدخل
+   951→            </Button>
+   952→          </DialogFooter>
+   953→        </DialogContent>
+   954→      </Dialog>
+   955→    </div>
+   956→  );
+   957→}
+   958→
