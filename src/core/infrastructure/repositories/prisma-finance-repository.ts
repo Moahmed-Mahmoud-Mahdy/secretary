@@ -5,6 +5,7 @@ import type {
   DateRange,
   IFinanceRepository,
   UpdateExpenseData,
+  UpdateIncomeData,
 } from '../../domain/repositories';
 import type { CategoryBudgetRecord, ExpenseRecord, IncomeRecord } from '../../domain/types';
 import type { ExpenseCategory, Recurrence } from '../../domain/enums';
@@ -110,6 +111,21 @@ export class PrismaFinanceRepository implements IFinanceRepository {
       },
     });
     return this.toIncome(income);
+  }
+
+  async updateIncome(userId: string, id: string, data: UpdateIncomeData): Promise<IncomeRecord | null> {
+    const existing = await this.db.income.findFirst({ where: { id, userId } });
+    if (!existing) return null;
+    const updated = await this.db.income.update({
+      where: { id },
+      data: {
+        ...(data.amount !== undefined ? { amount: data.amount } : {}),
+        ...(data.source !== undefined ? { source: data.source } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.date !== undefined ? { date: data.date } : {}),
+      },
+    });
+    return this.toIncome(updated);
   }
 
   async deleteIncome(userId: string, id: string): Promise<boolean> {

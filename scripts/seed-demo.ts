@@ -117,6 +117,23 @@ async function main() {
       tags: 'عادة',
     },
   });
+  // Past completions of the study habit → live 3-day streak out of the box.
+  for (const back of [1, 2, 3]) {
+    await db.task.create({
+      data: {
+        userId: user.id,
+        title: 'أذاكر ساعة قبل النوم',
+        priority: 'MEDIUM',
+        estimatedMinutes: 60,
+        deadline: wall(-back, 23, 0),
+        recurrence: 'DAILY',
+        status: 'COMPLETED',
+        completedAt: wall(-back, 22, 30),
+        tags: 'عادة',
+      },
+    });
+  }
+  // Past completion of the weekly review habit → 1-week streak.
   await db.task.create({
     data: {
       userId: user.id,
@@ -125,6 +142,19 @@ async function main() {
       estimatedMinutes: 20,
       deadline: wall(3, 22, 0),
       recurrence: 'WEEKLY',
+      tags: 'عادة,فلوس',
+    },
+  });
+  await db.task.create({
+    data: {
+      userId: user.id,
+      title: 'أراجع مصاريفي للأسبوع',
+      priority: 'LOW',
+      estimatedMinutes: 20,
+      deadline: wall(-4, 22, 0),
+      recurrence: 'WEEKLY',
+      status: 'COMPLETED',
+      completedAt: wall(-4, 21, 40),
       tags: 'عادة,فلوس',
     },
   });
@@ -231,11 +261,16 @@ async function main() {
   });
 
   // ---------- income ----------
+  // Both incomes land inside the current Cairo month so "دخل الشهر" is never 0.
+  const cairoDayOfNow = Number(
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', day: '2-digit' }).format(new Date())
+  );
+  const thisMonthClamped = (back: number) => wall(-Math.min(back, Math.max(0, cairoDayOfNow - 1)), 12, 0);
   await db.income.create({
-    data: { userId: user.id, amount: 3000, source: 'مصروف الأهل', date: wall(-14, 12, 0) },
+    data: { userId: user.id, amount: 3000, source: 'مصروف الأهل', date: thisMonthClamped(14) },
   });
   await db.income.create({
-    data: { userId: user.id, amount: 1500, source: 'شغل فريلانس صغير', date: wall(-6, 12, 0) },
+    data: { userId: user.id, amount: 1500, source: 'شغل فريلانس صغير', date: thisMonthClamped(6) },
   });
 
   // ---------- budget ----------

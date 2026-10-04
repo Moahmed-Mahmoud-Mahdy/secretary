@@ -256,6 +256,27 @@ export class AiChatUseCases {
         executed.push({ type: 'INCOME', action: 'CREATED', summary: `سجلت دخل ${formatAmount(created.amount)} جنيه`, refId: created.id });
         return;
       }
+      case 'UPDATE_INCOME': {
+        const name = str(action.incomeName) ?? str(action.source) ?? '';
+        const target = await this.financeUseCases.matchIncome(userId, name);
+        if (!target) {
+          executed.push({ type: 'INCOME', action: 'EXECUTED', summary: `ملقيتش دخل باسم «${name || '؟'}» في آخر شهرين` });
+          return;
+        }
+        const newAmount = num(action.amount);
+        if (newAmount === undefined) {
+          executed.push({ type: 'INCOME', action: 'EXECUTED', summary: `قولي المبلغ الجديد لـ «${target.source ?? name}» كام؟` });
+          return;
+        }
+        const updated = await this.financeUseCases.updateIncome(userId, target.id, { amount: newAmount });
+        executed.push({
+          type: 'INCOME',
+          action: 'EXECUTED',
+          summary: `عدّلت دخل «${target.source ?? 'الخريبة'}» — بقى ${formatAmount(updated.amount)} جنيه`,
+          refId: updated.id,
+        });
+        return;
+      }
       case 'SET_BUDGET': {
         const amount = num(action.amount);
         if (!amount) throw new Error('budget without amount');
@@ -484,10 +505,33 @@ export class AiChatUseCases {
             .map((t) => ({ title: t.title, deadline: t.deadline ? dayKeyOf(t.deadline) : null })),
         };
       }
+      case 'HABITS': {
+        const [habits, fin] = await Promise.all([
+          this.taskUseCases.listHabits(userId),
+          this.financeUseCases.summary(userId),
+        ]);
+        return {
+          habits: habits.map((h) => ({
+            title: h.title,
+            recurrence: h.recurrence,
+            streak: h.streak,
+            bestStreak: h.bestStreak,
+            totalCompletions: h.totalCompletions,
+            isDueToday: h.isDueToday,
+            nextDue: h.deadline ? dayKeyOf(parseWallIso(h.deadline.slice(0, 10))) : null,
+          })),
+          recurringBills: (fin.upcomingRecurring ?? []).map((b) => ({
+            name: b.description,
+            amount: b.amount,
+            nextDue: b.nextDueAt ? dayKeyOf(parseWallIso(b.nextDueAt.slice(0, 10))) : null,
+          })),
+        };
+      }
       default: {
-        const [summary, dayOccurrences] = await Promise.all([
+        const [summary, dayOccurrences, habits] = await Promise.all([
           this.financeUseCases.summary(userId),
           this.dayOccurrences(userId, dayKeyOf(now)),
+          this.taskUseCases.listHabits(userId),
         ]);
         const allTasks = await this.tasks.listAll(userId);
         const open = allTasks.filter((t) => t.status === 'TODO' || t.status === 'IN_PROGRESS');
@@ -500,6 +544,19 @@ export class AiChatUseCases {
           budget: summary.budget,
           remaining: summary.remaining,
           spentToday: summary.spentToday,
+          habits: habits.map((h) => ({
+            title: h.title,
+            recurrence: h.recurrence,
+            streak: h.streak,
+            bestStreak: h.bestStreak,
+            totalCompletions: h.totalCompletions,
+            isDueToday: h.isDueToday,
+          })),
+          recurringBills: (summary.upcomingRecurring ?? []).map((b) => ({
+            name: b.description,
+            amount: b.amount,
+            nextDue: b.nextDueAt ? b.nextDueAt.slice(0, 10) : null,
+          })),
         };
       }
     }

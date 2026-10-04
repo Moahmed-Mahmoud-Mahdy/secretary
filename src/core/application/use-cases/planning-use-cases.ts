@@ -37,7 +37,7 @@ export class PlanningUseCases {
     const slotDTOs: PlanSlotDTO[] = slots
       .map((s) => {
         const task = taskMap.get(s.taskId);
-        return serializePlanSlot(s, task?.title ?? 'مهمة', task?.priority ?? 'MEDIUM');
+        return serializePlanSlot(s, task?.title ?? 'مهمة', task?.priority ?? 'MEDIUM', task ?? null);
       })
       .sort((a, b) => a.startAt.localeCompare(b.startAt));
 
@@ -91,7 +91,7 @@ export class PlanningUseCases {
       const bucket = dayBuckets.get(key);
       if (!bucket) continue;
       const task = taskMap.get(s.taskId);
-      bucket.push(serializePlanSlot(s, task?.title ?? 'مهمة', task?.priority ?? 'MEDIUM'));
+      bucket.push(serializePlanSlot(s, task?.title ?? 'مهمة', task?.priority ?? 'MEDIUM', task ?? null));
     }
 
     const outDays: WeekPlanDTO['days'] = [...dayBuckets.entries()].map(([date, daySlots]) => {

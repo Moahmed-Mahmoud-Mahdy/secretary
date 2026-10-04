@@ -271,3 +271,35 @@ Task: Status assessment + browser QA + new features (category-limit notification
 - Habit check-in "streak" count not persisted (flame shown only as due-today indicator) — a real streak counter would need a completion history query per task.
 - ASR voice path still unverified with a real mic (headless limitation); TTS Arabic accent acceptable.
 - Next round suggestions: dark mode; income edit; budget-vs-actual month report card; per-task live timer on home timeline; transfer between categories as explicit قاعدة (مبلغ ثابت يتنقل شهريًا); notification when recurring expense comes due (EXPECTED_EXPENSE alert on nextDueAt day); PWA offline shell.
+
+---
+Task ID: cron-20261004-5
+Agent: main (Z.ai Code) — webDevReview round 5
+Task: Status assessment + browser QA + new features (habit streaks, recurring-due alerts, income edit, live timer on home) + AI fixes + styling
+
+## Current project status
+- STABLE. Browser QA re-verified end-to-end after re-seed: home (hero + suggestion + timeline + tasks + finance), calendar day/week/recurring, finance with limits. `bun run lint` clean, `tsc --noEmit` clean (app code), no new runtime errors in dev.log.
+- QA finding FIXED this round: asking "ايه عاداتي المتكررة؟" previously returned a generic schedule answer (no habits query path in AI) — now has a dedicated HABITS query type AND a robust GENERAL fallback that includes habits + recurring bills data.
+
+## This round: completed modifications & verification
+1. **Habit streak counter (BRD §16)** — full stack:
+   - Domain: new `HabitDTO` (streak, bestStreak, totalCompletions, isDueToday, lastCompletedAt).
+   - Application: `TaskUseCases.listHabits()` — groups COMPLETED recurring-task history by normalized title + recurrence, walks consecutive check-ins (`computeStreak`, interval + 1-day grace tolerance, chain-alive check so stale streaks read 0).
+   - API: `GET /api/habits`. Verified: seeded history → streak 3/best 3; UI check-in moved it correctly and materialized the next instance.
+   - UI (المتكرر hub): streak chips "🔥 N أيام/أسبوعين..." with Egyptian-Arabic pluralization via new `streakCountLabel()` shared helper; "أول مرة" / "أفضل: N" fallback chips; check-in toast announces the new streak count.
+2. **Recurring-expense due notifications (BRD §21/§28)** — new `EXPECTED_EXPENSE` notification type: "التزام مالي النهارده 💸" when nextDueAt is today, "التزام عدّى معاده ⏰" when overdue; deduped via refKey `due-{id}-{dueDay}[-late]`; 💸 icon in the bell. Verified E2E by temporarily shifting the internet bill's nextDueAt to today → alert fired with correct name/amount, then reverted.
+3. **Income edit (parity with expenses, BRD §19)** — full stack:
+   - Domain repo `UpdateIncomeData` + Prisma impl; `FinanceUseCases.updateIncome` (validates amount/date) + `matchIncome` (fuzzy source/description match, last 60 days).
+   - API: `PATCH /api/incomes/[id]`. UI: hover-reveal pencil on income rows (white icon tiles, group hover tint) opening the dialog in edit mode ("تعديل الدخل ✏️"). Verified E2E: created 3500 → edited to 4000 via UI → `incomeThisMonth` recalculated.
+   - AI: new action `UPDATE_INCOME` (auto-execute; prompt rule 16). Verified live: "الدخل اللي سجلته من الفريلانس كان 4500 مش 4000" → "عدّلت دخل «شغل فريلانس» — بقى 4500 جنيه".
+4. **Per-task live timer on home timeline (BRD §17)** — `PlanSlotDTO`/`OccurrenceDTO` now carry `taskIsTracking`/`taskTrackingStartedAt` (dashboard + day/week plan joins); home timeline renders an emerald ring + "● شغّال X د" chip that ticks every 30s; calendar day agenda shows the same chip. Verified live with a real tracking session (start → chip on home → stop → actualMinutes:1 in DB).
+5. **AI habits query + tone hardening** — prompt rules 16-18 added (UPDATE_INCOME, HABITS query, no-JSON rule renumbered); rule 5 strengthened with habit examples; answerQuestion now demands verbatim names from data + a final self-check line against "عندها/عنده" (last round's regression). Verified: "عندي ايه عادات وسلسلتي كام؟" → correct verbatim habit titles, masculine tone, real streak numbers.
+6. **Habit-streak praise insight (BRD §17)** — `habitStreakInsights()` in dashboard: INSIGHT "🔥 سلسلة «...» وصلت 3 أيام ورا بعض — كمّل كده، انت شاطر! 👏" when an alive streak ≥3 (from real history); renders in سكرتير يقولك. Verified.
+7. **Seed improvements** — study habit gets 3 past completions (live 3-day streak out of the box), weekly review habit gets 1 past completion; incomes now clamped into the current Cairo month so "دخل الشهر" is never 0 after re-seed.
+
+## Unresolved issues / risks & next priorities
+- Streak counts same-day double check-ins as 2 (acceptable simplification; each check-in counts).
+- GENERAL AI fallback payload is now heavier (includes habits) — fine for SQLite scale.
+- agent-browser ref staleness during SPA re-renders made tab clicks flaky in QA (retry with fresh snapshot works) — not an app bug.
+- Next round suggestions: dark mode; explicit transfers between categories (BRD §19); PWA offline shell; per-category month report card; habit "streak at risk" evening notification; AI natural-language reschedule ("أجل مهمة X لبكرة") already partly covered by UPDATE_TASK — expand tests; TTS voice comparison (xiaochen/kazi vs tongtong) for Arabic.
+- QA artifacts this round: download/qa-home-live-timer.png, download/qa-habits-streaks.png, download/qa-home-final.png, download/qa-week-regression.png.

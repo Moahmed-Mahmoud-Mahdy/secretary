@@ -171,6 +171,61 @@ export class FinanceUseCases {
     if (!ok) throw new ValidationError('الخريبة دي مش موجودة');
   }
 
+  /** Edit an existing income (amount/source/date) — parity with expense corrections. */
+  async updateIncome(
+    userId: string,
+    id: string,
+    input: {
+      amount?: number;
+      source?: string | null;
+      description?: string | null;
+      date?: string | null;
+    }
+  ): Promise<IncomeDTO> {
+    const data: {
+      amount?: number;
+      source?: string | null;
+      description?: string | null;
+      date?: Date;
+    } = {};
+    if (input.amount !== undefined && input.amount !== null) {
+      data.amount = this.validateAmount(input.amount);
+    }
+    if (input.source !== undefined) {
+      data.source = input.source?.trim() || null;
+    }
+    if (input.description !== undefined) {
+      data.description = input.description?.trim() || null;
+    }
+    if (input.date) {
+      const parsed = this.parseDate(input.date);
+      if (!parsed) throw new ValidationError('التاريخ ده مش صحيح');
+      data.date = parsed;
+    }
+    if (Object.keys(data).length === 0) throw new ValidationError('مفيش حاجة تتعدل');
+    const updated = await this.finance.updateIncome(userId, id, data);
+    if (!updated) throw new ValidationError('الخريبة دي مش موجودة');
+    return serializeIncome(updated);
+  }
+
+  /** Fuzzy-match an income by source/description against recent history (AI flows). */
+  async matchIncome(userId: string, needle: string): Promise<IncomeRecord | null> {
+    if (!needle) return null;
+    const now = nowWall();
+    const from = new Date(now.getTime() - 60 * 86_400_000);
+    const incomes = await this.finance.listIncomes(userId, { from, to: now });
+    const target = needle.trim().toLowerCase();
+    if (!target) return null;
+    // Most recent first — listIncomes already sorts desc by date.
+    return (
+      incomes.find((i) => (i.source ?? '').toLowerCase() === target) ??
+      incomes.find((i) => (i.source ?? '').toLowerCase().includes(target)) ??
+      incomes.find((i) => (i.description ?? '').toLowerCase().includes(target)) ??
+      incomes.find((i) => target.includes((i.source ?? '').toLowerCase()) && (i.source ?? '').length >= 3) ??
+      null
+    );
+  }
+
   async setBudget(userId: string, amount: number): Promise<void> {
     const validated = this.validateAmount(amount);
     const now = nowWall();

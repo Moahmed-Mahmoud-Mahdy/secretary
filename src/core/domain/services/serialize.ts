@@ -123,7 +123,12 @@ export function serializeIncome(income: IncomeRecord): import('../types').Income
   };
 }
 
-export function serializePlanSlot(slot: PlanSlotRecord, taskTitle: string, priority: TaskRecord['priority']): import('../types').PlanSlotDTO {
+export function serializePlanSlot(
+  slot: PlanSlotRecord,
+  taskTitle: string,
+  priority: TaskRecord['priority'],
+  task?: Pick<TaskRecord, 'trackingStartedAt'> | null
+): import('../types').PlanSlotDTO {
   return {
     id: slot.id,
     taskId: slot.taskId,
@@ -132,6 +137,9 @@ export function serializePlanSlot(slot: PlanSlotRecord, taskTitle: string, prior
     startAt: slot.startAt.toISOString(),
     endAt: slot.endAt.toISOString(),
     status: slot.status,
+    ...(task
+      ? { taskIsTracking: Boolean(task.trackingStartedAt), taskTrackingStartedAt: task.trackingStartedAt ? task.trackingStartedAt.toISOString() : null }
+      : {}),
   };
 }
 

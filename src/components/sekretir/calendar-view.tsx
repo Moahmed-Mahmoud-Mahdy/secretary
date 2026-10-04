@@ -41,13 +41,13 @@ import {
   type DayPlanDTO,
   type EventDTO,
   type FinanceSummaryDTO,
+  type HabitDTO,
   type OccurrenceDTO,
   type PlanSlotDTO,
   type Recurrence,
-  type TaskDTO,
   type WeekPlanDTO,
 } from '@/lib/sekretir/api';
-import { CATEGORY_META, RECURRENCE_LABELS, RECURRENCE_OPTIONS, fmtMoney } from '@/lib/sekretir/constants';
+import { CATEGORY_META, RECURRENCE_LABELS, RECURRENCE_OPTIONS, fmtMoney, streakCountLabel } from '@/lib/sekretir/constants';
 import {
   addDaysKey,
   fmtTime,
@@ -110,6 +110,8 @@ function slotToOccurrence(slot: PlanSlotDTO): OccurrenceDTO {
     endAt: slot.endAt,
     status: slot.status,
     priority: slot.priority,
+    taskIsTracking: slot.taskIsTracking,
+    taskTrackingStartedAt: slot.taskTrackingStartedAt,
   };
 }
 
@@ -135,7 +137,7 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
   const [slotBusy, setSlotBusy] = useState<string | null>(null);
 
   // recurring hub (المتكرر)
-  const [recurringTasks, setRecurringTasks] = useState<TaskDTO[]>([]);
+  const [habits, setHabits] = useState<HabitDTO[]>([]);
   const [financeSummary, setFinanceSummary] = useState<FinanceSummaryDTO | null>(null);
   const [recurringLoading, setRecurringLoading] = useState(false);
   const [checkinBusy, setCheckinBusy] = useState<string | null>(null);
@@ -207,12 +209,8 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
   const loadRecurring = useCallback(async () => {
     setRecurringLoading(true);
     try {
-      const [{ tasks: all }, fin] = await Promise.all([endpoints.tasks(), endpoints.financeSummary()]);
-      setRecurringTasks(
-        all.filter(
-          (t) => t.recurrence !== null && t.parentId === null && (t.status === 'TODO' || t.status === 'IN_PROGRESS')
-        )
-      );
+      const [{ habits: hbs }, fin] = await Promise.all([endpoints.habits(), endpoints.financeSummary()]);
+      setHabits(hbs);
       setFinanceSummary(fin);
     } catch (e) {
       if (isAuthError(e)) {
@@ -244,14 +242,17 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
   }
 
   /** Habit check-in: complete today's instance — backend materializes the next one. */
-  async function checkinTask(t: TaskDTO) {
+  async function checkinTask(t: HabitDTO) {
     if (checkinBusy) return;
     setCheckinBusy(t.id);
     try {
       await endpoints.updateTask(t.id, { status: 'COMPLETED' });
-      toast.success(`برافو! خلصت «${t.title}» النهارده 🔥`, {
-        description: 'سجلتلك الجاية في معادها',
-      });
+      toast.success(
+        t.streak > 0
+          ? `برافو! سلسلة «${t.title}» وصلت ${t.streak + 1} ${streakCountLabel(t.recurrence, t.streak + 1)} 🔥`
+          : `برافو! خلصت «${t.title}» النهارده 🔥`,
+        { description: 'سجلتلك الجاية في معادها' }
+      );
       await loadRecurring();
     } catch (e) {
       if (isAuthError(e)) {
@@ -576,7 +577,7 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
             </div>
           ) : (
             <>
-              {/* Habits — recurring tasks with check-in */}
+              {/* Habits — recurring tasks with check-in + streaks (BRD §16) */}
               <FadeIn>
                 <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
                   <CardContent className="p-4 sm:p-5">
@@ -587,25 +588,29 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
                         </span>
                         عاداتك المتكررة
                       </h2>
-                      <span className="text-xs font-bold text-stone-400">{recurringTasks.length}</span>
+                      <span className="text-xs font-bold text-stone-400">{habits.length}</span>
                     </div>
-                    <p className="text-xs text-stone-400 mb-3">علّم على العادة كل ما تخلصها — وسكرتير يسجلها لك الجاية في معادها.</p>
-                    {recurringTasks.length === 0 ? (
+                    <p className="text-xs text-stone-400 mb-3">
+                      علّم على العادة كل ما تخلصها — وسكرتير يحسبلك سلسلتك ويسجلها الجاية في معادها.
+                    </p>
+                    {habits.length === 0 ? (
                       <p className="py-6 text-center text-sm text-stone-400">
                         مفيش عادات متكررة لسه — قول لسكرتير «فتكر يوميًا أذاكر ساعة» 🔄
                       </p>
                     ) : (
                       <ul className="space-y-2 sekretir-scroll max-h-80 overflow-y-auto">
-                        {recurringTasks.map((t) => {
-                          const isDueToday = t.deadline ? t.deadline.slice(0, 10) <= today : true;
+                        {habits.map((t) => {
+                          const isDueToday = t.isDueToday;
+                          const unit =
+                            t.recurrence === 'DAILY' ? 'يوم' : t.recurrence === 'WEEKLY' ? 'أسبوع' : 'شهر';
                           return (
                             <li
                               key={t.id}
                               className={cn(
-                                'flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors',
+                                'flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-all duration-200',
                                 isDueToday
-                                  ? 'border-amber-200 bg-amber-50/50 hover:bg-amber-50'
-                                  : 'border-stone-100 bg-stone-50/50 hover:bg-stone-50'
+                                  ? 'border-amber-200 bg-amber-50/50 hover:bg-amber-50 hover:shadow-sm'
+                                  : 'border-stone-100 bg-stone-50/50 hover:bg-stone-50 hover:shadow-sm'
                               )}
                             >
                               <span className="text-lg shrink-0" aria-hidden>
@@ -619,23 +624,41 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
                                   {t.estimatedMinutes ? ` • ${t.estimatedMinutes} د` : ''}
                                 </p>
                               </div>
-                              <Button
-                                size="sm"
-                                disabled={checkinBusy === t.id}
-                                onClick={() => checkinTask(t)}
-                                className={cn(
-                                  'h-8 rounded-full text-xs shrink-0',
-                                  isDueToday
-                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                    : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
-                                )}
-                              >
-                                {checkinBusy === t.id ? (
-                                  <Loader2 className="size-3.5 animate-spin" />
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                {t.streak > 0 ? (
+                                  <span
+                                    className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-orange-100 border border-orange-200 text-orange-700 tabular-nums"
+                                    title={`أطول سلسلة: ${t.bestStreak} ${unit}`}
+                                  >
+                                    🔥 {t.streak} {streakCountLabel(t.recurrence as Recurrence, t.streak)}
+                                  </span>
+                                ) : t.totalCompletions > 0 ? (
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200 text-stone-500">
+                                    أفضل: {t.bestStreak} {unit}
+                                  </span>
                                 ) : (
-                                  'خلصتها ✅'
+                                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 border border-stone-200 text-stone-400">
+                                    أول مرة
+                                  </span>
                                 )}
-                              </Button>
+                                <Button
+                                  size="sm"
+                                  disabled={checkinBusy === t.id}
+                                  onClick={() => checkinTask(t)}
+                                  className={cn(
+                                    'h-8 rounded-full text-xs w-full',
+                                    isDueToday
+                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                      : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
+                                  )}
+                                >
+                                  {checkinBusy === t.id ? (
+                                    <Loader2 className="size-3.5 animate-spin" />
+                                  ) : (
+                                    'خلصتها ✅'
+                                  )}
+                                </Button>
+                              </div>
                             </li>
                           );
                         })}
@@ -805,10 +828,18 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
                         {occ.kind === 'PLANNED_TASK' ? '🤖 ' : ''}
                         {occ.title}
                       </p>
-                      <p className="text-xs text-stone-500 tabular-nums mt-0.5">
-                        {fmtTime(occ.startAt)}
-                        {occ.endAt ? ` – ${fmtTime(occ.endAt)}` : ''}
-                        {occ.isRecurring ? ' • 🔁 متكرر' : ''}
+                      <p className="text-xs text-stone-500 tabular-nums mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          {fmtTime(occ.startAt)}
+                          {occ.endAt ? ` – ${fmtTime(occ.endAt)}` : ''}
+                          {occ.isRecurring ? ' • 🔁 متكرر' : ''}
+                        </span>
+                        {occ.kind === 'PLANNED_TASK' && occ.taskIsTracking && occ.taskTrackingStartedAt ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-700">
+                            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
+                            شغّال {Math.max(1, Math.floor((Date.now() - new Date(occ.taskTrackingStartedAt).getTime()) / 60000))} د
+                          </span>
+                        ) : null}
                       </p>
                     </div>
 

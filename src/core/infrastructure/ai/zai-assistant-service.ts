@@ -73,7 +73,7 @@ function buildInterpretSystemPrompt(context: InterpretInput['context']): string 
 {"intent":"<INTENT>","actions":[<ACTION>،...]}
 
 INTENT يكون واحد من:
-CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, UPDATE_EXPENSE, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, SUGGEST_PLAN, UNKNOWN
+CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, UPDATE_EXPENSE, UPDATE_INCOME, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, SUGGEST_PLAN, UNKNOWN
 
 أنواع الـ Actions (التزم بالحقول دي بالظبط):
 {"type":"CREATE_TASK","title":"...","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":null|عدد الدقايق,"deadline":null|"YYYY-MM-DDTHH:mm:ss","projectName":null|"اسم المشروع","description":null|"وصف"}
@@ -88,10 +88,11 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 {"type":"UPDATE_TASK","taskName":"اسم المهمة","fields":{"title"?:"...","priority"?:"...","deadline"?:"YYYY-MM-DDTHH:mm:ss","estimatedMinutes"?:عدد,"description"?:"..."}}
 {"type":"DELETE_EVENT","eventName":"اسم الحدث"}
 {"type":"UPDATE_EXPENSE","expenseName":"اسم المصروف زي ما هو مسجل (الوصف)","amount":null|عدد جديد,"category":null|"FOOD"|"TRANSPORT"|"EDUCATION"|"PROJECTS"|"BILLS"|"SHOPPING"|"ENTERTAINMENT"|"OTHER"}
+{"type":"UPDATE_INCOME","incomeName":"مصدر الدخل زي ما هو مسجل","amount":عدد جديد}
 {"type":"CREATE_PROJECT_WITH_TASKS","name":"اسم المشروع","description":null,"deadline":null|"YYYY-MM-DD","tasks":[{"title":"خطوة مختصرة","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":عدد|null}]}
 {"type":"ADD_SUBTASKS","taskName":"اسم المهمة الموجودة","subtasks":["خطوة 1","خطوة 2","خطوة 3"]}
 {"type":"PLAN_DAY","date":null|"YYYY-MM-DD"}
-{"type":"QUERY","queryType":"FINANCE_SUMMARY"|"BUDGET_STATUS"|"TODAY_SCHEDULE"|"TASKS_STATUS"|"GENERAL","question":"سؤال المستخدم زي ما قاله"}
+{"type":"QUERY","queryType":"FINANCE_SUMMARY"|"BUDGET_STATUS"|"TODAY_SCHEDULE"|"TASKS_STATUS"|"HABITS"|"GENERAL","question":"سؤال المستخدم زي ما قاله"}
 {"type":"CHITCHAT","message":"..."}
 
 قواعد مهمة جدًا:
@@ -99,7 +100,7 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 2. كل الأوقات بتوقيت القاهرة. لو المهمة من غير ساعة محددة خلي deadline الساعة 23:59:59. لو ذكر مدة (مثلاً "ساعتين") حسبها بالدقايق في estimatedMinutes (120).
 3. الفلوس بالجنيه المصري. استخرج الأرقام حتى لو بالحروف: مية=100، ميتين=200، نص=50، ربع=25، ألف=1000. "جنيه" و"ج" و"EGP" كلها نفس المعنى.
 4. لو الرسالة فيها أكتر من طلب، رتّبهم في actions بنفس ترتيب المستخدم وخلي intent=MULTI_ACTION. مثال: "دفعت 100 جنيه مواصلات وبكرة عندي محاضرة الساعة 10" = CREATE_EXPENSE + CREATE_EVENT.
-5. لو المستخدم بيسأل (مثال: "إيه مصاريفي؟"، "عندي إيه النهارده؟"، "قد إيه صرفت الشهر ده؟"، "إيه المهام اللي معايا؟") → intent=QUERY ولازم actions يكون فيه عنصر واحد {"type":"QUERY","queryType":"...","question":"السؤال زي ما كتبه"}. ممنوع تسيب actions فاضية مع QUERY.
+5. لو المستخدم بيسأل (مثال: "إيه مصاريفي؟"، "عندي إيه النهارده؟"، "قد إيه صرفت الشهر ده؟"، "إيه المهام اللي معايا؟"، "إيه عاداتي المتكررة؟"، "عاداتي وسلسلتي وصلت كام؟") → intent=QUERY ولازم actions يكون فيه عنصر واحد {"type":"QUERY","queryType":"...","question":"السؤال زي ما كتبه"}. لو السؤال عن عادات أو التزامات متكررة أو فواتير بتتكرر استخدم queryType=HABITS. ممنوع تسيب actions فاضية مع QUERY.
 6. لو الرسالة مجرد سلام أو كلام عام من غير طلب → CHITCHAT.
 7. ممنوع تخترع بيانات مش موجودة في الرسالة. لو مش فاهم الطلب → intent=UNKNOWN و actions=[]. لو الرسالة فيها أكتر من intent مختلف خلي intent=MULTI_ACTION.
 8. مشاريع المستخدم الحالية: ${context.projects.length > 0 ? context.projects.join('، ') : 'مفيش'}. لو ذكر اسم مشروع موجود اكتبه في projectName زي ما هو، لو ذكر اسم مش موجود خلي projectName بالنص اللي قاله وهيتعمل تلقائي.
@@ -110,7 +111,9 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 13. لو المستخدم طلب تقسيم مهمة موجودة لخطوات (مثال: "قسمل مهمة X لخطوات"، "ضيف خطوات تحت X") → action واحد ADD_SUBTASKS باسم المهمة و3-6 خطوات.
 14. "خلي/ظبط/حدد ميزانية [الفئة] بمبلغ" أو "حد صرفي على الأكل كذا" (فئة معينة من غير ما يقول ميزانية الشهر كلها) → SET_CATEGORY_BUDGET بالفئة المناسبة. لو قال "ميزانيتي كذا" من غير فئة → SET_BUDGET.
 15. لو المستخدم عايز يصحّح أو يعدّل مصروف اتسجل قبل كده (مثال: "المصروف اللي سجلته مواصلات كان 60 مش 50"، "انقل مصروف الفطار لفئة الأكل"، "التصنيف بتاع X غلط خليه Y") → action واحد UPDATE_EXPENSE باسم المصروف (expenseName) والمبلغ الجديد و/أو الفئة الجديدة. ممنوع تستخدم UPDATE_EXPENSE لمصروف جديد — ده لبيعدي.
-16. ممنوع تطلع أي حاجة غير الـ JSON.`;
+16. لو المستخدم عايز يصحّح دخل اتسجل قبل كده (مثال: "الراتب اللي سجلته كان 9000 مش 8000"، "دخل الفريلانس كان 3000 مش 2500") → action واحد UPDATE_INCOME باسم مصدر الدخل (incomeName) والمبلغ الجديد. ممنوع تستخدمه لدخل جديد.
+17. لو المستخدم بيسأل عن عاداته أو التزاماته المتكررة أو سلسلة التزامه (مثال: "إيه عاداتي المتكررة؟"، "عندي إيه عادات؟"، "الفاتورات اللي بتتكرر إيه حكاها؟") → intent=QUERY و queryType=HABITS.
+18. ممنوع تطلع أي حاجة غير الـ JSON.`;
 }
 
 export class ZaiAssistantService implements IAiAssistantService {
@@ -143,11 +146,12 @@ export class ZaiAssistantService implements IAiAssistantService {
 المستخدم: ${input.userName}.
 هيبةلك سؤال ومعاه داتا حقيقية من نظام المستخدم (JSON).
 قواعد صارمة:
-- جاوب من الـ JSON ده وبس. ممنوع منعًا باتًا تخترع أرقام أو مواعيد أو مهام مش في الداتا.
-- خاطب المستخدم دايمًا بصيغة المذكر المباشر (عندك، انت، خلاصت، صرفت) — ممنوع نهائيًا "عندها/عنده/يحب" وهي كلام عن حد تالت.
+- جاوب من الـ JSON ده وبس. ممنوع منعًا باتًا تخترع أرقام أو مواعيد أو مهام أو أسماء مش في الداتا — انقل أسماء المهام والعادات والحاجات زي ما هي بالحرف.
+- خاطب المستخدم دايمًا بصيغة المذكر المباشر: كل جملة تبدأ بـ "انت/عندك/خلصت/صرفت" — ممنوع نهائيًا "عندها/عنده/له/لهذا/يحب" (دي كلام عن حد تالث).
 - لو الداتا فاضية أو مش فيها إجابة، قول له بصراحة إن مفيش بيانات لسه.
 - جاوب في سطرين على بعض، بالمصري، بأسلوب ودود مبالغش فيه. ممكن إيموجي واحد بس لو مناسب.
-- الأرقام اللي تقولها قرّبها بشكل مقروء (مثلاً 5250 جنيه).`;
+- الأرقام اللي تقولها قرّبها بشكل مقروء (مثلاً 5250 جنيه).
+- تذكير أخير قبل ما تجاوب: راجع ردّك — لو فيه كلمة "عندها" أو "عنده" غيّرها لـ "عندك" فورًا.`;
     return complete([
       { role: 'assistant', content: system },
       { role: 'user', content: `السؤال: ${input.question}\n\nالداتا الحقيقية:\n${input.dataJson}` },

@@ -204,6 +204,9 @@ export interface OccurrenceDTO {
   status?: PlanSlotStatus;
   priority?: Priority;
   isRecurring?: boolean;
+  /** Live time-tracking state of the underlying task (BRD §17). */
+  taskIsTracking?: boolean;
+  taskTrackingStartedAt?: string | null;
 }
 
 export interface ExpenseDTO {
@@ -225,6 +228,22 @@ export interface IncomeDTO {
   date: string;
 }
 
+/** A recurring habit (recurring open task) with its check-in streak (BRD §16). */
+export interface HabitDTO {
+  id: string;
+  title: string;
+  recurrence: Recurrence;
+  deadline: string | null;
+  estimatedMinutes: number | null;
+  isDueToday: boolean;
+  /** Current consecutive check-ins (days for DAILY, weeks for WEEKLY, months for MONTHLY). */
+  streak: number;
+  /** Longest streak ever recorded for this habit. */
+  bestStreak: number;
+  totalCompletions: number;
+  lastCompletedAt: string | null;
+}
+
 export interface PlanSlotDTO {
   id: string;
   taskId: string;
@@ -233,6 +252,9 @@ export interface PlanSlotDTO {
   startAt: string;
   endAt: string;
   status: PlanSlotStatus;
+  /** Live time-tracking state of the underlying task (BRD §17). */
+  taskIsTracking?: boolean;
+  taskTrackingStartedAt?: string | null;
 }
 
 export interface DayPlanDTO {

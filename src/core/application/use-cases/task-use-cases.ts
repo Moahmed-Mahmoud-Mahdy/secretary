@@ -1,7 +1,8 @@
 import { NotFoundError, ValidationError } from '../../domain/errors';
 import { serializeTask } from '../../domain/services/serialize';
-import { nowWall } from '../../domain/services/time';
+import { dayKeyOf, nowWall } from '../../domain/services/time';
 import type {
+  HabitDTO,
   TaskDTO,
   TaskRecord,
 } from '../../domain/types';
@@ -193,6 +194,58 @@ export class TaskUseCases {
     return matchTaskTitle(all, needle);
   }
 
+  /**
+   * Recurring habits with check-in streaks (BRD §16): the open instance
+   * of every recurring task, plus its completion history stats computed
+   * from real COMPLETED instances of the same habit (same normalized title).
+   */
+  async listHabits(userId: string): Promise<HabitDTO[]> {
+    const all = await this.tasks.listAll(userId);
+    const now = nowWall();
+    const today = dayKeyOf(now);
+
+    // Open recurring instances = the habits being tracked right now.
+    const open = all.filter(
+      (t) => t.recurrence !== null && t.parentId === null && (t.status === 'TODO' || t.status === 'IN_PROGRESS')
+    );
+
+    // Completed history grouped by habit identity (normalized title + recurrence).
+    const historyByHabit = new Map<string, TaskRecord[]>();
+    for (const t of all) {
+      if (t.status !== 'COMPLETED' || !t.completedAt || !t.recurrence) continue;
+      const key = `${t.recurrence}::${normalizeArabic(t.title)}`;
+      const bucket = historyByHabit.get(key);
+      if (bucket) bucket.push(t);
+      else historyByHabit.set(key, [t]);
+    }
+
+    return open.map((habit) => {
+      const key = `${habit.recurrence}::${normalizeArabic(habit.title)}`;
+      const history = (historyByHabit.get(key) ?? []).sort(
+        (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0)
+      );
+      const intervalDays = habit.recurrence === 'DAILY' ? 1 : habit.recurrence === 'WEEKLY' ? 7 : 31;
+      const { current, best } = computeStreak(history, intervalDays);
+      const lastCompletedAt = history[0]?.completedAt ?? null;
+      // Chain stays alive while no full period has passed without a check-in.
+      const chainAlive =
+        !lastCompletedAt || now.getTime() - lastCompletedAt.getTime() <= (intervalDays + 1) * 86_400_000;
+      const isDueToday = habit.deadline ? dayKeyOf(habit.deadline) <= today : true;
+      return {
+        id: habit.id,
+        title: habit.title,
+        recurrence: habit.recurrence as Recurrence,
+        deadline: habit.deadline ? habit.deadline.toISOString() : null,
+        estimatedMinutes: habit.estimatedMinutes ?? null,
+        isDueToday,
+        streak: chainAlive ? current : 0,
+        bestStreak: Math.max(best, chainAlive ? current : 0),
+        totalCompletions: history.length,
+        lastCompletedAt: lastCompletedAt ? lastCompletedAt.toISOString() : null,
+      };
+    });
+  }
+
   private async materializeNextRecurrence(userId: string, task: TaskRecord): Promise<void> {
     if (!task.recurrence) return;
     const base = task.deadline ?? task.completedAt ?? nowWall();
@@ -286,4 +339,39 @@ export function matchTaskTitle(tasks: TaskRecord[], needle: string): TaskRecord 
     .filter((s) => s.score >= 50)
     .sort((a, b) => b.score - a.score);
   return scored[0]?.task ?? null;
+}
+
+/**
+ * Walk the completion history (most recent first) and count consecutive
+ * periods. A gap larger than one interval (+1 day grace) breaks the chain.
+ * Returns the current streak and the longest streak ever seen.
+ */
+export function computeStreak(
+  history: { completedAt: Date | null }[],
+  intervalDays: number
+): { current: number; best: number } {
+  if (history.length === 0) return { current: 0, best: 0 };
+  const toleranceMs = (intervalDays + 1) * 86_400_000;
+
+  let current = 1;
+  for (let i = 1; i < history.length; i += 1) {
+    const newer = history[i - 1].completedAt?.getTime() ?? 0;
+    const older = history[i].completedAt?.getTime() ?? 0;
+    if (newer - older <= toleranceMs) current += 1;
+    else break;
+  }
+
+  let best = 1;
+  let run = 1;
+  for (let i = 1; i < history.length; i += 1) {
+    const newer = history[i - 1].completedAt?.getTime() ?? 0;
+    const older = history[i].completedAt?.getTime() ?? 0;
+    if (newer - older <= toleranceMs) {
+      run += 1;
+      best = Math.max(best, run);
+    } else {
+      run = 1;
+    }
+  }
+  return { current, best };
 }

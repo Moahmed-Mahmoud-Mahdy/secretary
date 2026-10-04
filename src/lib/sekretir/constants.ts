@@ -58,6 +58,15 @@ export const RECURRENCE_LABELS: Record<Recurrence, string> = {
 
 export const CHAT_STORAGE_KEY = 'sekretir_chat';
 
+/** Egyptian-Arabic plural for streak counts: "3 أيام" / "أسبوعين" / "شهور". */
+export function streakCountLabel(recurrence: 'DAILY' | 'WEEKLY' | 'MONTHLY', count: number): string {
+  const dual = count === 2;
+  const few = count >= 3 && count <= 10;
+  if (recurrence === 'DAILY') return dual ? 'يومين' : few ? 'أيام' : 'يوم';
+  if (recurrence === 'WEEKLY') return dual ? 'أسبوعين' : few ? 'أسابيع' : 'أسبوع';
+  return dual ? 'شهرين' : few ? 'شهور' : 'شهر';
+}
+
 /** Format EGP money, Arabic-friendly digits grouping. */
 export function fmtMoney(n: number | null | undefined): string {
   const v = Math.round((n ?? 0) * 100) / 100;

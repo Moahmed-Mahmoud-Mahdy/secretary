@@ -38,6 +38,12 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  // Ticks every 30s so live-tracking chips on the timeline stay fresh.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -168,6 +174,10 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
                 {schedule.map((occ) => {
                   const done = occ.kind === 'PLANNED_TASK' && occ.status === 'DONE';
                   const isEvent = occ.kind === 'EVENT';
+                  const liveTracking =
+                    occ.kind === 'PLANNED_TASK' && occ.taskIsTracking && occ.taskTrackingStartedAt
+                      ? Math.max(1, Math.floor((nowTick - new Date(occ.taskTrackingStartedAt).getTime()) / 60000))
+                      : null;
                   return (
                     <li key={occ.key} className="relative ps-2">
                       <span
@@ -179,8 +189,11 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
                       />
                       <div
                         className={cn(
-                          'flex items-center gap-2 flex-wrap rounded-xl px-3 py-2',
-                          isEvent ? 'bg-amber-50 border border-amber-100' : 'bg-stone-50 border border-stone-100'
+                          'flex items-center gap-2 flex-wrap rounded-xl px-3 py-2 transition-all duration-200',
+                          isEvent
+                            ? 'bg-amber-50 border border-amber-100'
+                            : 'bg-stone-50 border border-stone-100',
+                          liveTracking !== null && 'border-emerald-300 bg-emerald-50 ring-1 ring-emerald-200'
                         )}
                       >
                         <span className="text-xs font-bold text-stone-500 tabular-nums">
@@ -189,12 +202,18 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
                         </span>
                         <span
                           className={cn(
-                            'text-sm font-semibold flex-1',
+                            'text-sm font-semibold flex-1 min-w-0',
                             done ? 'line-through text-stone-400' : 'text-stone-800'
                           )}
                         >
                           {occ.title}
                         </span>
+                        {liveTracking !== null ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-700 tabular-nums">
+                            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
+                            شغّال {liveTracking} د
+                          </span>
+                        ) : null}
                         <span
                           className={cn(
                             'text-[10px] font-bold px-2 py-0.5 rounded-full',

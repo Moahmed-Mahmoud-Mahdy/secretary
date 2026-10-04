@@ -125,6 +125,13 @@ export interface CreateIncomeData {
   date?: Date;
 }
 
+export interface UpdateIncomeData {
+  amount?: number;
+  source?: string | null;
+  description?: string | null;
+  date?: Date;
+}
+
 export interface IFinanceRepository {
   listExpenses(userId: string, range?: DateRange): Promise<ExpenseRecord[]>;
   createExpense(userId: string, data: CreateExpenseData): Promise<ExpenseRecord>;
@@ -132,6 +139,7 @@ export interface IFinanceRepository {
   deleteExpense(userId: string, id: string): Promise<boolean>;
   listIncomes(userId: string, range?: DateRange): Promise<IncomeRecord[]>;
   createIncome(userId: string, data: CreateIncomeData): Promise<IncomeRecord>;
+  updateIncome(userId: string, id: string, data: UpdateIncomeData): Promise<IncomeRecord | null>;
   deleteIncome(userId: string, id: string): Promise<boolean>;
   getBudgetAmount(userId: string, month: number, year: number): Promise<number | null>;
   setBudgetAmount(userId: string, month: number, year: number, amount: number): Promise<void>;

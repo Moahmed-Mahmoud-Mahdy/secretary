@@ -46,6 +46,7 @@ import {
   type ExpenseCategory,
   type ExpenseDTO,
   type FinanceSummaryDTO,
+  type IncomeDTO,
   type Recurrence,
 } from '@/lib/sekretir/api';
 import { CATEGORY_META, CATEGORY_OPTIONS, RECURRENCE_OPTIONS, fmtMoney } from '@/lib/sekretir/constants';
@@ -82,8 +83,9 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
   });
   const [addingExpense, setAddingExpense] = useState(false);
 
-  // add income dialog
+  // add / edit income dialog
   const [incomeOpen, setIncomeOpen] = useState(false);
+  const [editingIncome, setEditingIncome] = useState<IncomeDTO | null>(null);
   const [incForm, setIncForm] = useState({ amount: '', source: '', date: '' });
   const [addingIncome, setAddingIncome] = useState(false);
 
@@ -242,24 +244,44 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
     setExpenseOpen(true);
   }
 
-  async function addIncome() {
+  async function saveIncome() {
     const amount = Number(incForm.amount);
     if (!amount || amount <= 0 || addingIncome) return;
     setAddingIncome(true);
     try {
-      await endpoints.createIncome({
-        amount,
-        source: incForm.source.trim() || null,
-        date: incForm.date || todayKey(),
-      });
-      setIncomeOpen(false);
-      toast.success('سجلت الدخل 💵');
+      if (editingIncome) {
+        await endpoints.updateIncome(editingIncome.id, {
+          amount,
+          source: incForm.source.trim() || null,
+          date: incForm.date || editingIncome.date.slice(0, 10),
+        });
+        setIncomeOpen(false);
+        toast.success('اتعدل الدخل ✏️');
+      } else {
+        await endpoints.createIncome({
+          amount,
+          source: incForm.source.trim() || null,
+          date: incForm.date || todayKey(),
+        });
+        setIncomeOpen(false);
+        toast.success('سجلت الدخل 💵');
+      }
       await load();
     } catch (e) {
       toast.error(apiErrorMessage(e));
     } finally {
       setAddingIncome(false);
     }
+  }
+
+  function openEditIncome(x: IncomeDTO) {
+    setEditingIncome(x);
+    setIncForm({
+      amount: String(x.amount),
+      source: x.source ?? '',
+      date: x.date.slice(0, 10),
+    });
+    setIncomeOpen(true);
   }
 
   async function deleteExpense(id: string) {
@@ -344,6 +366,7 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
             variant="outline"
             className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 rounded-full"
             onClick={() => {
+              setEditingIncome(null);
               setIncForm({ amount: '', source: '', date: defaultDateInMonth(month) });
               setIncomeOpen(true);
             }}
@@ -774,9 +797,12 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
                 {[...summary.incomes]
                   .sort((a, b) => b.date.localeCompare(a.date))
                   .map((x) => (
-                    <li key={x.id} className="flex items-center gap-3 py-2.5">
+                    <li
+                      key={x.id}
+                      className="group flex items-center gap-3 py-2.5 px-2 -mx-2 rounded-xl hover:bg-emerald-50/60 transition-colors"
+                    >
                       <span
-                        className="size-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0"
+                        className="size-9 rounded-xl bg-white border border-emerald-100 flex items-center justify-center shrink-0 shadow-sm"
                         aria-hidden
                       >
                         <TrendingUp className="size-4 text-emerald-600" />
@@ -790,15 +816,26 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
                       <span className="text-sm font-extrabold text-emerald-600 tabular-nums shrink-0">
                         +{fmtMoney(x.amount)} ج
                       </span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-stone-300 hover:text-rose-600 hover:bg-rose-50 shrink-0"
-                        onClick={() => deleteIncome(x.id)}
-                        aria-label="امسح الدخل"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                      <div className="flex items-center shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-stone-300 hover:text-amber-600 hover:bg-amber-50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                          onClick={() => openEditIncome(x)}
+                          aria-label="عدل الدخل"
+                        >
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-stone-300 hover:text-rose-600 hover:bg-rose-50"
+                          onClick={() => deleteIncome(x.id)}
+                          aria-label="امسح الدخل"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     </li>
                   ))}
               </ul>
@@ -954,12 +991,20 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Add income dialog */}
-      <Dialog open={incomeOpen} onOpenChange={setIncomeOpen}>
+      {/* Add / edit income dialog */}
+      <Dialog
+        open={incomeOpen}
+        onOpenChange={(o) => {
+          setIncomeOpen(o);
+          if (!o) setEditingIncome(null);
+        }}
+      >
         <DialogContent className="rounded-2xl max-w-sm">
           <DialogHeader>
-            <DialogTitle>دخل جديد 💵</DialogTitle>
-            <DialogDescription>مرتب، مشروع، أي فلوس داخلك.</DialogDescription>
+            <DialogTitle>{editingIncome ? 'تعديل الدخل ✏️' : 'دخل جديد 💵'}</DialogTitle>
+            <DialogDescription>
+              {editingIncome ? 'عدّل المبلغ أو المصدر — سكرتير هيحدّث الحسابات.' : 'مرتب، مشروع، أي فلوس داخلك.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-1">
             <div className="grid grid-cols-2 gap-3">
@@ -1002,11 +1047,17 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
             </Button>
             <Button
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={addIncome}
+              onClick={saveIncome}
               disabled={addingIncome || !incForm.amount}
             >
-              {addingIncome ? <Loader2 className="size-4 animate-spin" /> : <ArrowDownCircle className="size-4" />}
-              سجل الدخل
+              {addingIncome ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : editingIncome ? (
+                <Pencil className="size-4" />
+              ) : (
+                <ArrowDownCircle className="size-4" />
+              )}
+              {editingIncome ? 'احفظ التعديل' : 'سجل الدخل'}
             </Button>
           </DialogFooter>
         </DialogContent>

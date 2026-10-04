@@ -14,6 +14,7 @@ const NOTIF_ICON: Record<string, string> = {
   OVERDUE_TASK: '⏰',
   DEADLINE_WARNING: '❗',
   BUDGET_ALERT: '💰',
+  EXPECTED_EXPENSE: '💸',
   EVENT_REMINDER: '📅',
   TASK_REMINDER: '✅',
   WEEKLY_SUMMARY: '📊',

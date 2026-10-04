@@ -26,6 +26,7 @@ import type {
 } from '../../domain/repositories';
 import { eventOccurrenceOnDay } from '../../domain/services/recurrence';
 import { CATEGORY_LABELS_AR } from '../../domain/enums';
+import { computeStreak, normalizeArabic } from './task-use-cases';
 
 // ============================================================
 // Dashboard use case (BRD §25, §29) — context-aware home data:
@@ -78,13 +79,14 @@ export class DashboardUseCases {
     const dayStart = startOfDay(now);
     const dayEnd = endOfDay(now);
 
-    const [taskRecords, eventRecords, expenses, incomes, budget, slots] = await Promise.all([
+    const [taskRecords, eventRecords, expenses, incomes, budget, slots, allExpenses] = await Promise.all([
       this.tasks.listAll(userId),
       this.events.listAll(userId),
       this.finance.listExpenses(userId, { from: addDays(dayStart, -14), to: now }),
       this.finance.listIncomes(userId, { from: startOfMonth(now), to: endOfMonth(now) }),
       this.finance.getBudgetAmount(userId, now.getUTCMonth() + 1, now.getUTCFullYear()),
       this.plans.listSlotsForDay(userId, dayStart, dayEnd),
+      this.finance.listExpenses(userId),
     ]);
 
     // ---------- schedule ----------
@@ -117,6 +119,8 @@ export class DashboardUseCases {
         endAt: slot.endAt.toISOString(),
         status: slot.status,
         priority: task?.priority ?? 'MEDIUM',
+        taskIsTracking: Boolean(task?.trackingStartedAt),
+        taskTrackingStartedAt: task?.trackingStartedAt ? task.trackingStartedAt.toISOString() : null,
       });
     }
     occurrences.sort((a, b) => a.startAt.localeCompare(b.startAt));
@@ -199,6 +203,7 @@ export class DashboardUseCases {
           : null,
       }),
       ...personalizationInsights(buildPersonalizationSnapshot(taskRecords, now)),
+      ...habitStreakInsights(taskRecords, now),
     ];
 
     // ---------- notifications ----------
@@ -216,7 +221,8 @@ export class DashboardUseCases {
       now,
       spentLast7,
       completedLast7,
-      categoryLimits
+      categoryLimits,
+      allExpenses.filter((e) => e.isRecurring && e.nextDueAt)
     );
     const [unread, unreadCount] = await Promise.all([
       this.notifications.listUnread(userId),
@@ -262,7 +268,8 @@ export class DashboardUseCases {
     now: Date,
     spentLast7: number,
     completedLast7: number,
-    categoryLimits: { category: string; limit: number; spent: number; pct: number; over: boolean }[]
+    categoryLimits: { category: string; limit: number; spent: number; pct: number; over: boolean }[],
+    recurringExpenses: { id: string; description: string | null; category: string; amount: number; nextDueAt: Date | null }[]
   ): Promise<void> {
     const today = dayKeyOf(now);
     const items: { type: string; title: string; body: string; refKey: string }[] = [];
@@ -334,6 +341,30 @@ export class DashboardUseCases {
       }
     }
 
+    // Recurring financial commitments coming due (BRD §21/§28) — alert on
+    // due day and once overdue, deduped per expense/due-date.
+    for (const rec of recurringExpenses) {
+      if (!rec.nextDueAt) continue;
+      const dueDay = dayKeyOf(rec.nextDueAt);
+      const label = rec.description || CATEGORY_LABELS_AR[rec.category as keyof typeof CATEGORY_LABELS_AR] || rec.category;
+      const amount = Math.round(rec.amount);
+      if (dueDay === today) {
+        items.push({
+          type: 'EXPECTED_EXPENSE',
+          title: 'التزام مالي النهارده 💸',
+          body: `«${label}» مستحق النهارده (${amount} ج) — جهز الفلوس أو سجّلها لو دفعتها.`,
+          refKey: `due-${rec.id}-${dueDay}`,
+        });
+      } else if (rec.nextDueAt < now) {
+        items.push({
+          type: 'EXPECTED_EXPENSE',
+          title: 'التزام عدّى معاده ⏰',
+          body: `«${label}» كان المفروض يتدفع (${amount} ج) ولسه متسجلش — دفعتها؟ سجّلها وأنا أظبط الجاي.`,
+          refKey: `due-${rec.id}-${dueDay}-late`,
+        });
+      }
+    }
+
     if (items.length > 0) {
       await this.notifications.createManyDeduped(
         user.id,
@@ -395,4 +426,57 @@ function buildPersonalizationSnapshot(tasks: TaskRecord[], now: Date): {
       actualMinutes: t.actualMinutes,
     }));
   return { completedByHour, completedLast7, completedLast14, chronicOverdue, durationSamples };
+}
+
+/**
+ * Habit-streak praise from real completion history (BRD §16/§17):
+ * celebrate active streaks ≥3 and nudge when a due habit is one check-in
+ * away from starting a chain.
+ */
+function habitStreakInsights(
+  tasks: TaskRecord[],
+  now: Date
+): import('../../domain/types').InsightDTO[] {
+  // Group completed recurring-task history by habit identity.
+  const groups = new Map<string, { title: string; recurrence: string; history: { completedAt: Date | null }[] }>();
+  for (const t of tasks) {
+    if (t.status !== 'COMPLETED' || !t.completedAt || !t.recurrence) continue;
+    const key = `${t.recurrence}::${normalizeArabic(t.title)}`;
+    const g = groups.get(key);
+    if (g) g.history.push(t);
+    else groups.set(key, { title: t.title, recurrence: t.recurrence, history: [t] });
+  }
+
+  const openRecurring = tasks.filter(
+    (t) => t.recurrence !== null && t.parentId === null && (t.status === 'TODO' || t.status === 'IN_PROGRESS')
+  );
+
+  const out: import('../../domain/types').InsightDTO[] = [];
+  for (const habit of openRecurring) {
+    const key = `${habit.recurrence}::${normalizeArabic(habit.title)}`;
+    const g = groups.get(key);
+    if (!g) continue;
+    const intervalDays = habit.recurrence === 'DAILY' ? 1 : habit.recurrence === 'WEEKLY' ? 7 : 31;
+    const history = g.history.sort(
+      (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0)
+    );
+    const { current } = computeStreak(history, intervalDays);
+    if (current < 3) continue;
+    const alive = !history[0]?.completedAt || now.getTime() - history[0].completedAt.getTime() <= (intervalDays + 1) * 86_400_000;
+    if (!alive) continue;
+    const unit = current === 2
+      ? habit.recurrence === 'DAILY' ? 'يومين' : habit.recurrence === 'WEEKLY' ? 'أسبوعين' : 'شهرين'
+      : habit.recurrence === 'DAILY' ? (current <= 10 ? 'أيام' : 'يوم')
+      : habit.recurrence === 'WEEKLY' ? (current <= 10 ? 'أسابيع' : 'أسبوع')
+      : current <= 10 ? 'شهور' : 'شهر';
+    out.push({
+      id: `habit-streak-${habit.id}`,
+      kind: 'INSIGHT',
+      domain: 'TASKS',
+      icon: '🔥',
+      text: `سلسلة «${habit.title}» وصلت ${current} ${unit} ورا بعض — كمّل كده، انت شاطر! 👏`,
+    });
+    break; // one streak praise is enough per dashboard load
+  }
+  return out;
 }

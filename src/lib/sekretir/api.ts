@@ -17,7 +17,7 @@ export type EventType = 'FIXED' | 'AI_PLANNED';
 export type PlanSlotStatus = 'PLANNED' | 'DONE' | 'MISSED';
 export type NotificationType =
   | 'TASK_REMINDER' | 'EVENT_REMINDER' | 'DEADLINE_WARNING' | 'OVERDUE_TASK'
-  | 'BUDGET_ALERT' | 'WEEKLY_SUMMARY' | 'AI_SUGGESTION' | 'REPLAN';
+  | 'BUDGET_ALERT' | 'EXPECTED_EXPENSE' | 'WEEKLY_SUMMARY' | 'AI_SUGGESTION' | 'REPLAN';
 export type InsightKind = 'INSIGHT' | 'WARNING' | 'IMPORTANT' | 'SUGGESTION';
 export type InsightDomain = 'FINANCE' | 'TASKS' | 'PLANNING' | 'CALENDAR';
 export type AiActionType =
@@ -31,6 +31,19 @@ export interface UserDTO {
   name: string;
   email: string;
   monthlyBudget: number | null;
+}
+
+export interface HabitDTO {
+  id: string;
+  title: string;
+  recurrence: Recurrence;
+  deadline: string | null;
+  estimatedMinutes: number | null;
+  isDueToday: boolean;
+  streak: number;
+  bestStreak: number;
+  totalCompletions: number;
+  lastCompletedAt: string | null;
 }
 
 export interface TaskDTO {
@@ -94,6 +107,9 @@ export interface OccurrenceDTO {
   status?: PlanSlotStatus;
   priority?: Priority;
   isRecurring?: boolean;
+  /** Live time-tracking state of the underlying task (BRD §17). */
+  taskIsTracking?: boolean;
+  taskTrackingStartedAt?: string | null;
 }
 
 export interface ExpenseDTO {
@@ -123,6 +139,9 @@ export interface PlanSlotDTO {
   startAt: string;
   endAt: string;
   status: PlanSlotStatus;
+  /** Live time-tracking state of the underlying task (BRD §17). */
+  taskIsTracking?: boolean;
+  taskTrackingStartedAt?: string | null;
 }
 
 export interface DayPlanDTO {
@@ -365,7 +384,11 @@ export const endpoints = {
     api.get<{ incomes: IncomeDTO[] }>(`/api/incomes${month ? `?month=${month}` : ''}`),
   createIncome: (body: Record<string, unknown>) =>
     api.post<{ income: IncomeDTO }>('/api/incomes', body),
+  updateIncome: (id: string, body: Record<string, unknown>) =>
+    api.patch<{ income: IncomeDTO }>(`/api/incomes/${id}`, body),
   deleteIncome: (id: string) => api.del<{ deleted: boolean }>(`/api/incomes/${id}`),
+
+  habits: () => api.get<{ habits: HabitDTO[] }>('/api/habits'),
 
   dayPlan: (date: string) => api.get<DayPlanDTO>(`/api/plan?date=${date}`),
   weekPlan: (start: string, days = 7) =>
