@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// سكرتير — Personal AI Assistant
+// NOTE: SQLite has no native enums; string fields are validated
+// at the domain layer (src/core/domain/enums.ts).
+// NOTE: All DateTime values are stored as Cairo WALL-CLOCK time
+// encoded as UTC (e.g. 10:00 Cairo == T10:00:00.000Z on disk).
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  passwordHash  String
+  monthlyBudget Float?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tasks         Task[]
+  projects      Project[]
+  events        CalendarEvent[]
+  expenses      Expense[]
+  incomes       Income[]
+  budgets       Budget[]
+  notifications Notification[]
+  planSlots     PlanSlot[]
+}
+
+model Project {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  status      String    @default("ACTIVE") // PLANNING | ACTIVE | ON_HOLD | COMPLETED | CANCELLED
+  priority    String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  deadline    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tasks       Task[]
+}
+
+model Task {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  description      String?
+  priority         String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  status           String    @default("TODO") // TODO | IN_PROGRESS | COMPLETED | CANCELLED (OVERDUE is derived)
+  estimatedMinutes Int?
+  deadline         DateTime?
+  reminderAt       DateTime?
+  recurrence       String? // DAILY | WEEKLY | MONTHLY
+  tags             String? // comma separated
+  projectId        String?
+  project          Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  parentId         String?
+  parent           Task?     @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks         Task[]    @relation("TaskSubtasks")
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  planSlots        PlanSlot[]
+}
+
+model CalendarEvent {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  notes      String?
+  eventType  String    @default("FIXED") // FIXED | AI_PLANNED
+  startAt    DateTime
+  endAt      DateTime?
+  recurrence String? // DAILY | WEEKLY | MONTHLY
+  reminderAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Expense {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount      Float
+  category    String    @default("OTHER") // FOOD | TRANSPORT | EDUCATION | PROJECTS | BILLS | SHOPPING | ENTERTAINMENT | OTHER
+  description String?
+  date        DateTime  @default(now())
+  isRecurring Boolean   @default(false)
+  recurrence  String? // DAILY | WEEKLY | MONTHLY
+  nextDueAt   DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Income {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount      Float
+  source      String?
+  description String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+model Budget {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  month     Int // 1-12
+  year      Int
+  amount    Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, month, year])
+}
+
+model PlanSlot {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  date      DateTime // day (wall clock, midnight)
+  startAt   DateTime
+  endAt     DateTime
+  status    String   @default("PLANNED") // PLANNED | DONE | MISSED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // TASK_REMINDER | EVENT_REMINDER | DEADLINE_WARNING | OVERDUE_TASK | BUDGET_ALERT | WEEKLY_SUMMARY | AI_SUGGESTION | REPLAN
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  refKey    String? // dedupe key per user
+  createdAt DateTime @default(now())
+}
