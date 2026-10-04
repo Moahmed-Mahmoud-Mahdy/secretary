@@ -139,7 +139,11 @@ export function NotificationsBell({ refreshKey }: NotificationsBellProps) {
           ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={8} className="w-80 p-0 rounded-2xl overflow-hidden">
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 max-w-[calc(100vw-2rem)] p-0 rounded-2xl overflow-hidden"
+      >
         <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-l from-amber-50/80 to-transparent border-b border-stone-100">
           <h3 className="font-bold text-sm text-stone-800 flex items-center gap-2">
             <span className="size-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center" aria-hidden>
@@ -165,7 +169,10 @@ export function NotificationsBell({ refreshKey }: NotificationsBellProps) {
             </Button>
           ) : null}
         </div>
-        <ScrollArea className="max-h-96">
+        {/* NOTE: Radix ScrollArea quirk — max-h on the Root alone clips content without ever
+            enabling scroll (viewport h-full resolves against auto-height parent). The fix is
+            to cap the VIEWPORT itself via the child selector. */}
+        <ScrollArea className="max-h-[min(24rem,65vh)] [&>[data-radix-scroll-area-viewport]]:max-h-[min(24rem,65vh)]">
           {loading ? (
             <div className="px-4 py-8 text-center text-sm text-stone-400">بنجيب التنبيهات...</div>
           ) : items.length === 0 ? (

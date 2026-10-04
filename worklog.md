@@ -482,3 +482,25 @@ Stage Summary:
 - QA artifacts: download/ui-v2-*.png (home/tasks/finance/donut x3/calendar/assistant/chat-user/mobile-finance/mobile-donut/dark-calendar/empty-robot/empty-projects/final-home)
 - Notes: test account ui-test-*@test.com/test1234 remains in DB (isolated, zero data) for future empty-state QA; nav pill layoutId requires framer-motion (already a dep)
 - Next round ideas: per-item highlight after search deep-link; TTS Arabic voice comparison; PWA shell; streak sparkline on home; sliding pill for settings gear state
+---
+Task ID: cron-20261004-11
+Agent: main (Z.ai Code) — webDevReview round 11
+Task: User request (Egyptian Arabic): "عاوزك تضيف ان انا اقدر scroll لما افتح ال notifications" — make the notifications popover scrollable
+
+## Current project status
+- STABLE. App fully loaded (session persisted, demo@sekretir.app). Pre-existing Radix ScrollArea bug found & fixed in the notifications popover; E2E verified light/dark/mobile.
+
+## This round: completed modifications & verification
+1. **ROOT CAUSE**: `<ScrollArea className="max-h-96">` in notifications-popover.tsx — classic Radix ScrollArea quirk: max-h on the Root clips content but the inner Viewport (`h-full` against an auto-height parent) never gets capped, so scrollHeight==clientHeight never triggers on the viewport → content below 384px unreachable, zero scroll.
+2. **FIX**: cap the VIEWPORT itself via Tailwind arbitrary child variant: `max-h-[min(24rem,65vh)] [&>[data-radix-scroll-area-viewport]]:max-h-[min(24rem,65vh)]` (65vh keeps it safe on short/landscape screens). Also added `max-w-[calc(100vw-2rem)]` to PopoverContent as a narrow-screen guard.
+3. **E2E verified (agent-browser)**:
+   - Metrics: viewportClientH=384, scrollHeight=677 (6 rows) → scrollable=true (was clipped before).
+   - JS scroll to bottom: scrollTop=293, reachedBottom=true; sticky "النهارده" group header stays pinned while scrolling (screenshots qa-r11-notif-top/bottom.png).
+   - Dark mode: scrolled popover renders correctly with dark sticky header + amber unread rows (qa-r11-notif-dark.png).
+   - Mobile 390×844: popover fits (left 70 / right 390) and scrolls (qa-r11-notif-mobile.png).
+4. **QA tooling note (important for future rounds)**: `agent-browser mouse wheel` scrolls the PAGE WINDOW even with cursor over the popover (window.scrollY 0→300, viewport scrollTop stayed 0) — it is NOT a valid test of element-level wheel scrolling. Validate popover scroll via viewport metrics (scrollHeight vs clientHeight) + JS scrollTop instead. Native browser wheel works by construction (real overflow container, correct hit-testing confirmed via elementsFromPoint).
+
+## Unresolved issues / risks & next priorities
+- ScrollArea is only used in the notifications popover — the fix pattern did not need to be applied elsewhere (grep confirmed single usage).
+- agent-browser session left in light mode, viewport 1280×800, popover closed (clean state).
+- Next round suggestions (carried over): per-item highlight after search deep-link; one-click budget copy chip inside BUDGET_REMINDER notifications; notification "mark read on scroll"; TTS Arabic voice comparison; PWA shell.
