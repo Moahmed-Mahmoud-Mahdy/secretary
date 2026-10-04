@@ -383,6 +383,13 @@ export const endpoints = {
       amount,
       ...(month ? { month } : {}),
     }),
+  transferCategoryBudget: (from: string, to: string, amount: number, month?: string) =>
+    api.post<{ from: string; to: string; fromLimit: number; toLimit: number }>('/api/budget/transfer', {
+      from,
+      to,
+      amount,
+      ...(month ? { month } : {}),
+    }),
 
   expenses: (month?: string) =>
     api.get<{ expenses: ExpenseDTO[] }>(`/api/expenses${month ? `?month=${month}` : ''}`),

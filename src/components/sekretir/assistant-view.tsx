@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Check, Loader2, Square, Volume2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ interface ChatMsg {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  at?: string;
   executed?: AiExecutedAction[];
   pending?: AiPendingAction[];
 }
@@ -37,17 +38,31 @@ const WELCOME: ChatMsg = {
   text: 'أنا سكرتيرك الشخصي 🤖\nقولّي أي حاجة بالمصري العادي:\n• «دفعت 50 جنيه مواصلات»\n• «بكرة عندي محاضرة الساعة 10»\n• «عايز أذاكر ساعتين بكرة»\n• «نظملي يومي»\n• «قد إيه صرفت الشهر ده؟»',
 };
 
+const QUICK_PROMPTS = [
+  'نظملي يومي',
+  'قد إيه صرفت الشهر ده؟',
+  'إيه مهامي اللي فاضلة؟',
+  'إيه عاداتي وسلسلتي؟',
+];
+
 const ACTION_ICON: Record<string, string> = {
   CREATE_TASK: '✅',
   CREATE_EVENT: '📅',
   CREATE_EXPENSE: '💸',
   CREATE_INCOME: '💵',
   SET_BUDGET: '💰',
+  SET_CATEGORY_BUDGET: '🎯',
+  TRANSFER_BUDGET: '🔁',
   CREATE_PROJECT: '📁',
+  CREATE_PROJECT_WITH_TASKS: '🗂️',
+  ADD_SUBTASKS: '🪄',
   COMPLETE_TASK: '🎉',
   DELETE_TASK: '🗑️',
   UPDATE_TASK: '✏️',
   DELETE_EVENT: '🗑️',
+  UPDATE_EXPENSE: '✏️',
+  UPDATE_INCOME: '💵',
+  POSTPONE: '⏩',
   PLAN_DAY: '🪄',
   QUERY: '🔎',
   CHITCHAT: '💬',
@@ -110,7 +125,7 @@ export function AssistantView({
       const message = raw.trim();
       if (!message || thinking) return;
       setInput('');
-      const userMsg: ChatMsg = { id: newId(), role: 'user', text: message };
+      const userMsg: ChatMsg = { id: newId(), role: 'user', text: message, at: new Date().toISOString() };
       setMessages((prev) => [...prev, userMsg]);
       setThinking(true);
       try {
@@ -119,6 +134,7 @@ export function AssistantView({
           id: newId(),
           role: 'assistant',
           text: res.reply,
+          at: new Date().toISOString(),
           executed: res.executed?.length ? res.executed : undefined,
           pending: res.pending?.length ? res.pending : undefined,
         };
@@ -227,21 +243,24 @@ export function AssistantView({
           <div key={m.id} className="sekretir-msg">
             {m.role === 'user' ? (
               <div className="flex justify-start">
-                <div className="max-w-[85%] sm:max-w-[70%] whitespace-pre-wrap rounded-2xl rounded-ss-sm bg-amber-600 text-white px-4 py-2.5 text-sm shadow-sm">
-                  {m.text}
+                <div className="max-w-[85%] sm:max-w-[70%]">
+                  <div className="whitespace-pre-wrap rounded-2xl rounded-ss-sm bg-gradient-to-br from-amber-500 to-amber-600 text-white px-4 py-2.5 text-sm shadow-md shadow-amber-600/20">
+                    {m.text}
+                  </div>
+                  {m.at ? <TimeTag at={m.at} align="start" /> : null}
                 </div>
               </div>
             ) : (
               <div className="flex justify-end gap-2 items-end">
                 <div className="max-w-[88%] sm:max-w-[75%] space-y-2">
-                  <div className="whitespace-pre-wrap rounded-2xl rounded-se-sm bg-white border border-stone-200 px-4 py-2.5 text-sm text-stone-800 shadow-sm group relative">
+                  <div className="whitespace-pre-wrap rounded-2xl rounded-se-sm bg-white border border-stone-200 px-4 py-2.5 text-sm text-stone-800 shadow-sm group relative hover:shadow-md hover:border-amber-200 transition-all">
                     {m.text}
                     <button
                       type="button"
                       aria-label={speakingId === m.id ? 'وقف الصوت' : 'اسمع الرد بصوت سكرتير'}
                       disabled={speakingId === m.id && !audioRef.current}
                       onClick={() => speakMessage(m.id, m.text)}
-                      className="absolute -top-2 -start-2 size-6 rounded-full bg-white border border-stone-200 shadow-sm flex items-center justify-center text-amber-600 hover:bg-amber-50 hover:border-amber-300 transition-colors"
+                      className="absolute -top-2 -start-2 size-6 rounded-full bg-white border border-stone-200 shadow-sm flex items-center justify-center text-amber-600 hover:bg-amber-50 hover:border-amber-300 hover:scale-110 transition-all"
                     >
                       {speakingId === m.id ? (
                         audioRef.current ? (
@@ -253,6 +272,7 @@ export function AssistantView({
                         <Volume2 className="size-3" />
                       )}
                     </button>
+                    {m.at ? <TimeTag at={m.at} align="end" /> : null}
                   </div>
 
                   {m.executed?.map((a, i) => (
@@ -319,6 +339,21 @@ export function AssistantView({
             </div>
           </div>
         ) : null}
+
+        {messages.length <= 1 && !thinking ? (
+          <div className="flex flex-wrap justify-end gap-1.5 pt-1" aria-label="اقتراحات جاهزة">
+            {QUICK_PROMPTS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => void send(p)}
+                className="rounded-full border border-amber-200 bg-amber-50/70 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 hover:border-amber-300 active:scale-95 transition-all"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="pt-2 pb-1">
@@ -331,5 +366,29 @@ export function AssistantView({
         />
       </div>
     </div>
+  );
+}
+
+/** Small HH:MM timestamp under a chat bubble. */
+function TimeTag({ at, align }: { at: string; align: 'start' | 'end' }) {
+  const label = useMemo(() => {
+    try {
+      const d = new Date(at);
+      if (Number.isNaN(d.getTime())) return '';
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    } catch {
+      return '';
+    }
+  }, [at]);
+  if (!label) return null;
+  return (
+    <p
+      className={cn(
+        'mt-0.5 text-[10px] text-stone-400 tabular-nums',
+        align === 'end' ? 'text-end pe-1' : 'text-start ps-1'
+      )}
+    >
+      {label}
+    </p>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowDownCircle,
+  ArrowLeftRight,
   ArrowUpCircle,
   BarChart3,
   ChevronLeft,
@@ -94,6 +95,15 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
   // per-category limits (BRD finance)
   const [limitForm, setLimitForm] = useState<{ category: string; amount: string }>({ category: '', amount: '' });
   const [savingLimit, setSavingLimit] = useState(false);
+
+  // transfer budget room between category limits (BRD §19)
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferForm, setTransferForm] = useState<{ from: string; to: string; amount: string }>({
+    from: '',
+    to: '',
+    amount: '',
+  });
+  const [transferring, setTransferring] = useState(false);
 
   // copy last month's budget shortcut
   const [lastMonthBudget, setLastMonthBudget] = useState(0);
@@ -193,6 +203,24 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       toast.error(apiErrorMessage(e));
     } finally {
       setSavingLimit(false);
+    }
+  }
+
+  async function submitTransfer() {
+    const amount = Number(transferForm.amount);
+    if (!transferForm.from || !transferForm.to || !amount || amount <= 0 || transferring) return;
+    setTransferring(true);
+    try {
+      const res = await endpoints.transferCategoryBudget(transferForm.from, transferForm.to, amount, month);
+      const label = (c: string) => CATEGORY_META[c as ExpenseCategory]?.label ?? c;
+      toast.success(`تم التحويل 🔁 ${label(res.from)} ${res.fromLimit} ج ← ${label(res.to)} ${res.toLimit} ج`);
+      setTransferOpen(false);
+      setTransferForm({ from: '', to: '', amount: '' });
+      await load();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setTransferring(false);
     }
   }
 
@@ -579,13 +607,28 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       {summary ? (
         <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="p-4 sm:p-5">
-            <h2 className="font-bold text-stone-800 flex items-center gap-2 mb-1">
-              <Target className="size-4 text-amber-600" />
-              حدود الفئات
-            </h2>
-            <p className="text-[11px] text-stone-400 mb-3">
-              حدد سقف صرف لكل فئة وسكرتير ينبّهك قبل ما تعديها
-            </p>
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <div>
+                <h2 className="font-bold text-stone-800 flex items-center gap-2">
+                  <Target className="size-4 text-amber-600" />
+                  حدود الفئات
+                </h2>
+                <p className="text-[11px] text-stone-400 mt-0.5">
+                  حدد سقف صرف لكل فئة وسكرتير ينبّهك قبل ما تعديها
+                </p>
+              </div>
+              {isCurrentMonth && summary.categoryLimits.length > 0 ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setTransferOpen(true)}
+                  className="h-8 shrink-0 rounded-xl border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800 gap-1 text-xs"
+                >
+                  <ArrowLeftRight className="size-3.5" />
+                  حوّل
+                </Button>
+              ) : null}
+            </div>
 
             {summary.categoryLimits.length > 0 ? (
               <ul className="space-y-3 mb-4">
@@ -689,6 +732,114 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Transfer between category limits (BRD §19) */}
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className="max-w-sm rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ArrowLeftRight className="size-4 text-amber-600" />
+              حوّل بين حدود الفئات 🔁
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              انقل مساحة صرف من فئة لفئة — من غير ما تلمس الميزانية الكلية.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">من فئة (ليها حد)</Label>
+                <Select
+                  value={transferForm.from}
+                  onValueChange={(v) => setTransferForm((f) => ({ ...f, from: v, to: f.to === v ? '' : f.to }))}
+                  dir="rtl"
+                >
+                  <SelectTrigger className="h-9 rounded-xl text-xs bg-white" aria-label="الفئة اللي التحويل منها">
+                    <SelectValue placeholder="اختار…" />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    {(summary?.categoryLimits ?? []).map((cl) => (
+                      <SelectItem key={cl.category} value={cl.category}>
+                        {CATEGORY_META[cl.category].icon} {CATEGORY_META[cl.category].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">لفئة (اللي بتستفيد)</Label>
+                <Select
+                  value={transferForm.to}
+                  onValueChange={(v) => setTransferForm((f) => ({ ...f, to: v }))}
+                  dir="rtl"
+                >
+                  <SelectTrigger className="h-9 rounded-xl text-xs bg-white" aria-label="الفئة اللي التحويل ليها">
+                    <SelectValue placeholder="اختار…" />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    {CATEGORY_OPTIONS.filter((o) => o.value !== transferForm.from).map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="transfer-amount" className="text-xs text-stone-600">المبلغ المحوّل (ج)</Label>
+              <Input
+                id="transfer-amount"
+                value={transferForm.amount}
+                onChange={(e) => setTransferForm((f) => ({ ...f, amount: e.target.value }))}
+                type="number"
+                inputMode="numeric"
+                min="1"
+                placeholder="مثال: 100"
+                className="h-9 rounded-xl text-sm"
+              />
+            </div>
+            {transferForm.from && transferForm.to && Number(transferForm.amount) > 0 ? (() => {
+              const fromLimit = summary?.categoryLimits.find((cl) => cl.category === transferForm.from)?.limit ?? 0;
+              const toLimit = summary?.categoryLimits.find((cl) => cl.category === transferForm.to)?.limit ?? 0;
+              const amt = Number(transferForm.amount);
+              const label = (c: string) => CATEGORY_META[c as ExpenseCategory]?.label ?? c;
+              const invalid = amt > fromLimit;
+              return (
+                <p className={cn('rounded-xl px-3 py-2 text-[11px] font-semibold', invalid ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200')}>
+                  {invalid
+                    ? `المبلغ أكبر من حد ${label(transferForm.from)} (${fromLimit} ج) — قلّل المبلغ.`
+                    : `حد ${label(transferForm.from)} هيبقى ${fromLimit - amt} ج — وحد ${label(transferForm.to)} هيبقى ${toLimit + amt} ج`}
+                </p>
+              );
+            })() : null}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setTransferOpen(false)}
+              className="rounded-xl border-stone-200 text-stone-600 hover:bg-stone-100"
+            >
+              إلغاء
+            </Button>
+            <Button
+              onClick={() => void submitTransfer()}
+              disabled={
+                !transferForm.from ||
+                !transferForm.to ||
+                !Number(transferForm.amount) ||
+                Number(transferForm.amount) <= 0 ||
+                transferring ||
+                Number(transferForm.amount) > (summary?.categoryLimits.find((cl) => cl.category === transferForm.from)?.limit ?? 0)
+              }
+              className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white gap-1"
+            >
+              {transferring ? <Loader2 className="size-4 animate-spin" /> : <ArrowLeftRight className="size-4" />}
+              حوّل دلوقتي
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Upcoming recurring */}
       {summary && summary.upcomingRecurring.length > 0 ? (

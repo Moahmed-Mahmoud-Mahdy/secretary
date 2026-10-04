@@ -1,0 +1,838 @@
+     1→import { AiInterpretationError } from '../../domain/errors';
+     2→import { matchTaskTitle } from './task-use-cases';
+     3→import { relativeDayArabic, dayKeyOf, nowWall, parseWallIso, fmtHHMM, weekdayArabic } from '../../domain/services/time';
+     4→import { CATEGORY_LABELS_AR } from '../../domain/enums';
+     5→import type { TaskDTO } from '../../domain/types';
+     6→import type {
+     7→  AiUserContext,
+     8→  EventRecord,
+     9→  OccurrenceDTO,
+    10→  TaskRecord,
+    11→  UserRecord,
+    12→} from '../../domain/types';
+    13→import type { AiAction, IAiAssistantService } from '../ports';
+    14→import type {
+    15→  IEventRepository,
+    16→  IFinanceRepository,
+    17→  IPlanRepository,
+    18→  IProjectRepository,
+    19→  ITaskRepository,
+    20→  IUserRepository,
+    21→} from '../../domain/repositories';
+    22→import type { FinanceUseCases } from './finance-use-cases';
+    23→import type { PlanningUseCases } from './planning-use-cases';
+    24→import type { TaskUseCases } from './task-use-cases';
+    25→import type { EventUseCases } from './event-use-cases';
+    26→import type { ProjectUseCases } from './project-use-cases';
+    27→
+    28→// ============================================================
+    29→// AI chat use case (BRD §5-§9, §42) — the orchestration heart:
+    30→//   User Input → Intent Detection → Command Generation →
+    31→//   Validation → Business Rules → Command Execution.
+    32→//
+    33→// The AI never touches the database: it only proposes actions;
+    34→// this use case validates and executes them through the other
+    35→// use cases (Smart Auto-Execute: creates run instantly,
+    36→// destructive/updates need user confirmation).
+    37→// ============================================================
+    38→
+    39→export interface ExecutedActionDTO {
+    40→  type: 'TASK' | 'EVENT' | 'EXPENSE' | 'INCOME' | 'BUDGET' | 'PROJECT' | 'PLAN' | 'TASK_COMPLETED';
+    41→  action: 'CREATED' | 'COMPLETED' | 'EXECUTED';
+    42→  summary: string;
+    43→  refId?: string;
+    44→}
+    45→
+    46→export interface PendingActionDTO {
+    47→  id: string;
+    48→  type: 'DELETE_TASK' | 'UPDATE_TASK' | 'DELETE_EVENT';
+    49→  title: string;
+    50→  summary: string;
+    51→  payload: Record<string, unknown>;
+    52→}
+    53→
+    54→export interface QueryDataDTO {
+    55→  queryType: string;
+    56→  question: string;
+    57→  data: Record<string, unknown>;
+    58→}
+    59→
+    60→export interface ChatResultDTO {
+    61→  reply: string;
+    62→  intent: string;
+    63→  executed: ExecutedActionDTO[];
+    64→  pending: PendingActionDTO[];
+    65→  query: QueryDataDTO | null;
+    66→  failed: string[];
+    67→}
+    68→
+    69→const MAX_ACTIONS_PER_MESSAGE = 8;
+    70→
+    71→/** Actions that always need explicit user confirmation (BRD §8). */
+    72→const CONFIRMATION_REQUIRED = new Set(['DELETE_TASK', 'UPDATE_TASK', 'DELETE_EVENT']);
+    73→
+    74→export class AiChatUseCases {
+    75→  private pendingCounter = 0;
+    76→
+    77→  constructor(
+    78→    private readonly users: IUserRepository,
+    79→    private readonly tasks: ITaskRepository,
+    80→    private readonly projects: IProjectRepository,
+    81→    private readonly events: IEventRepository,
+    82→    private readonly finance: IFinanceRepository,
+    83→    private readonly plans: IPlanRepository,
+    84→    private readonly ai: IAiAssistantService,
+    85→    private readonly taskUseCases: TaskUseCases,
+    86→    private readonly financeUseCases: FinanceUseCases,
+    87→    private readonly planningUseCases: PlanningUseCases,
+    88→    private readonly eventUseCases: EventUseCases,
+    89→    private readonly projectUseCases: ProjectUseCases
+    90→  ) {}
+    91→
+    92→  async handleMessage(userId: string, message: string): Promise<ChatResultDTO> {
+    93→    const text = message.trim();
+    94→    if (!text) throw new AiInterpretationError('اكتب حاجة الأول 😄');
+    95→
+    96→    const context = await this.buildContext(userId);
+    97→    const interpretation = await this.ai.interpret({ message: text, context });
+    98→    if (process.env.NODE_ENV !== 'production') {
+    99→      console.log('[ai-chat] interpretation:', JSON.stringify(interpretation).slice(0, 500));
+   100→    }
+   101→
+   102→    const executed: ExecutedActionDTO[] = [];
+   103→    const pending: PendingActionDTO[] = [];
+   104→    const failed: string[] = [];
+   105→    let query: QueryDataDTO | null = null;
+   106→    let chitchat = interpretation.intent === 'CHITCHAT';
+   107→
+   108→    const actions = (interpretation.actions ?? []).slice(0, MAX_ACTIONS_PER_MESSAGE);
+   109→    // Safety net: when the model returns an intent without actions,
+   110→    // synthesize the command from the intent itself.
+   111→    const effectiveActions: AiAction[] =
+   112→      actions.length > 0 ? actions : (synthesizeActionFromIntent(interpretation.intent, text) ?? []);
+   113→    for (const action of effectiveActions) {
+   114→      try {
+   115→        await this.processAction(userId, action, executed, pending, (q) => {
+   116→          query = q;
+   117→        });
+   118→      } catch (error) {
+   119→        failed.push(actionLabel(action));
+   120→        if (process.env.NODE_ENV !== 'production') {
+   121→          console.error('[ai-chat] action failed:', action.type, error);
+   122→        }
+   123→      }
+   124→      if ((action.type ?? '').toUpperCase() === 'CHITCHAT') chitchat = true;
+   125→    }
+   126→
+   127→    let reply: string;
+   128→    const queryValue = query as QueryDataDTO | null;
+   129→    if (queryValue && queryValue.question) {
+   130→      reply = await this.safeAnswerQuestion(queryValue, context.firstName);
+   131→    } else if (executed.length > 0 || pending.length > 0 || failed.length > 0) {
+   132→      reply = this.buildReply(context.firstName, executed, pending, failed);
+   133→    } else if (chitchat) {
+   134→      reply = await this.safeSmallTalk(text, context.firstName);
+   135→    } else {
+   136→      reply = `مش متأكد إني فهمت قصدك يا ${context.firstName} — ممكن تقولها لي بطريقة تانية؟`;
+   137→    }
+   138→
+   139→    return { reply, intent: interpretation.intent ?? 'UNKNOWN', executed, pending, query: queryValue, failed };
+   140→  }
+   141→
+   142→  /** Executes a previously-confirmed action (BRD §8 confirmation flow). */
+   143→  async executeConfirmedAction(userId: string, pending: PendingActionDTO): Promise<ExecutedActionDTO> {
+   144→    const executed: ExecutedActionDTO[] = [];
+   145→    switch (pending.type) {
+   146→      case 'DELETE_TASK': {
+   147→        const taskId = String(payloadValue(pending.payload, 'taskId'));
+   148→        const task = await this.tasks.findById(userId, taskId);
+   149→        await this.taskUseCases.delete(userId, taskId);
+   150→        return { type: 'TASK', action: 'EXECUTED', summary: `تمسحت مهمة «${task?.title ?? 'المهمة'}»`, refId: taskId };
+   151→      }
+   152→      case 'DELETE_EVENT': {
+   153→        const eventId = String(payloadValue(pending.payload, 'eventId'));
+   154→        const event = await this.events.findById(userId, eventId);
+   155→        await this.events.delete(userId, eventId);
+   156→        return { type: 'EVENT', action: 'EXECUTED', summary: `تمسح حدث «${event?.title ?? 'الحدث'}»`, refId: eventId };
+   157→      }
+   158→      case 'UPDATE_TASK': {
+   159→        const taskId = String(payloadValue(pending.payload, 'taskId'));
+   160→        const fields = (payloadValue(pending.payload, 'fields') ?? {}) as Record<string, unknown>;
+   161→        const updated = await this.taskUseCases.update(userId, taskId, fields as never);
+   162→        return { type: 'TASK', action: 'EXECUTED', summary: `عدّلت مهمة «${updated.title}»`, refId: taskId };
+   163→      }
+   164→      default:
+   165→        throw new AiInterpretationError('نوع الطلب ده مش محتاج تأكيد');
+   166→    }
+   167→  }
+   168→
+   169→  // ---------------- internals ----------------
+   170→
+   171→  private async processAction(
+   172→    userId: string,
+   173→    action: AiAction,
+   174→    executed: ExecutedActionDTO[],
+   175→    pending: PendingActionDTO[],
+   176→    setQuery: (q: QueryDataDTO) => void
+   177→  ): Promise<void> {
+   178→    const type = String(action.type ?? '').toUpperCase();
+   179→
+   180→    switch (type) {
+   181→      case 'CREATE_TASK': {
+   182→        const created = await this.taskUseCases.create(userId, {
+   183→          title: str(action.title) ?? 'مهمة جديدة',
+   184→          description: str(action.description),
+   185→          priority: str(action.priority) ?? undefined,
+   186→          estimatedMinutes: num(action.estimatedMinutes),
+   187→          deadline: str(action.deadline),
+   188→          projectId: await this.resolveProjectId(userId, str(action.projectName)),
+   189→        });
+   190→        executed.push({ type: 'TASK', action: 'CREATED', summary: this.taskSummary(created), refId: created.id });
+   191→        return;
+   192→      }
+   193→      case 'CREATE_EVENT': {
+   194→        const startAt = str(action.startAt);
+   195→        if (!startAt) throw new Error('event without startAt');
+   196→        const created = await this.eventUseCases.create(userId, {
+   197→          title: str(action.title) ?? 'حدث',
+   198→          startAt,
+   199→          endAt: str(action.endAt) ?? null,
+   200→          recurrence: str(action.recurrence),
+   201→        });
+   202→        executed.push({ type: 'EVENT', action: 'CREATED', summary: this.eventSummary(created.title, created.startAt), refId: created.id });
+   203→        return;
+   204→      }
+   205→      case 'CREATE_EXPENSE': {
+   206→        const amount = num(action.amount);
+   207→        if (!amount) throw new Error('expense without amount');
+   208→        const created = await this.financeUseCases.createExpense(userId, {
+   209→          amount,
+   210→          category: str(action.category) ?? undefined,
+   211→          description: str(action.description),
+   212→          date: str(action.date),
+   213→        });
+   214→        const categoryLabel = CATEGORY_LABELS_AR[created.category] ?? '';
+   215→        const summary = `سجلت ${formatAmount(created.amount)} جنيه على ${created.description || categoryLabel}`;
+   216→        executed.push({ type: 'EXPENSE', action: 'CREATED', summary, refId: created.id });
+   217→        return;
+   218→      }
+   219→      case 'UPDATE_EXPENSE': {
+   220→        const name = str(action.expenseName) ?? str(action.description) ?? '';
+   221→        const target = await this.financeUseCases.matchExpense(userId, name);
+   222→        if (!target) {
+   223→          executed.push({ type: 'EXPENSE', action: 'EXECUTED', summary: `ملقيتش مصروف باسم «${name || '؟'}» في آخر شهرين` });
+   224→          return;
+   225→        }
+   226→        const newAmount = num(action.amount);
+   227→        const newCategory = str(action.category);
+   228→        if (newAmount === undefined && !newCategory) {
+   229→          executed.push({ type: 'EXPENSE', action: 'EXECUTED', summary: `قولي أعدّل إيه في «${target.description ?? name}» — المبلغ ولا الفئة؟` });
+   230→          return;
+   231→        }
+   232→        const updated = await this.financeUseCases.updateExpense(userId, target.id, {
+   233→          amount: newAmount,
+   234→          category: newCategory,
+   235→        });
+   236→        const changes: string[] = [];
+   237→        if (newAmount !== undefined) changes.push(`بقى ${formatAmount(updated.amount)} جنيه`);
+   238→        if (newCategory) changes.push(`اتنقل على ${CATEGORY_LABELS_AR[updated.category] ?? newCategory}`);
+   239→        const descText = target.description || CATEGORY_LABELS_AR[updated.category] || 'المصروف';
+   240→        executed.push({
+   241→          type: 'EXPENSE',
+   242→          action: 'EXECUTED',
+   243→          summary: `عدّلت «${descText}» — ${changes.join(' و')}`,
+   244→          refId: updated.id,
+   245→        });
+   246→        return;
+   247→      }
+   248→      case 'CREATE_INCOME': {
+   249→        const amount = num(action.amount);
+   250→        if (!amount) throw new Error('income without amount');
+   251→        const created = await this.financeUseCases.createIncome(userId, {
+   252→          amount,
+   253→          source: str(action.source),
+   254→          date: str(action.date),
+   255→        });
+   256→        executed.push({ type: 'INCOME', action: 'CREATED', summary: `سجلت دخل ${formatAmount(created.amount)} جنيه`, refId: created.id });
+   257→        return;
+   258→      }
+   259→      case 'UPDATE_INCOME': {
+   260→        const name = str(action.incomeName) ?? str(action.source) ?? '';
+   261→        const target = await this.financeUseCases.matchIncome(userId, name);
+   262→        if (!target) {
+   263→          executed.push({ type: 'INCOME', action: 'EXECUTED', summary: `ملقيتش دخل باسم «${name || '؟'}» في آخر شهرين` });
+   264→          return;
+   265→        }
+   266→        const newAmount = num(action.amount);
+   267→        if (newAmount === undefined) {
+   268→          executed.push({ type: 'INCOME', action: 'EXECUTED', summary: `قولي المبلغ الجديد لـ «${target.source ?? name}» كام؟` });
+   269→          return;
+   270→        }
+   271→        const updated = await this.financeUseCases.updateIncome(userId, target.id, { amount: newAmount });
+   272→        executed.push({
+   273→          type: 'INCOME',
+   274→          action: 'EXECUTED',
+   275→          summary: `عدّلت دخل «${target.source ?? 'الخريبة'}» — بقى ${formatAmount(updated.amount)} جنيه`,
+   276→          refId: updated.id,
+   277→        });
+   278→        return;
+   279→      }
+   280→      case 'SET_BUDGET': {
+   281→        const amount = num(action.amount);
+   282→        if (!amount) throw new Error('budget without amount');
+   283→        await this.financeUseCases.setBudget(userId, amount);
+   284→        executed.push({ type: 'BUDGET', action: 'CREATED', summary: `ظبطت ميزانية الشهر على ${formatAmount(amount)} جنيه` });
+   285→        return;
+   286→      }
+   287→      case 'SET_CATEGORY_BUDGET': {
+   288→        const amount = num(action.amount);
+   289→        const category = str(action.category) ?? 'OTHER';
+   290→        if (!amount) throw new Error('category budget without amount');
+   291→        await this.financeUseCases.setCategoryBudget(userId, category, amount);
+   292→        const label = CATEGORY_LABELS_AR[category.toUpperCase() as keyof typeof CATEGORY_LABELS_AR] ?? category;
+   293→        executed.push({
+   294→          type: 'BUDGET',
+   295→          action: 'CREATED',
+   296→          summary: `ظبطت حد صرف ${label} على ${formatAmount(amount)} جنيه في الشهر`,
+   297→        });
+   298→        return;
+   299→      }
+   300→      case 'CREATE_PROJECT': {
+   301→        const name = str(action.name) ?? str(action.title);
+   302→        if (!name) throw new Error('project without name');
+   303→        const created = await this.projectUseCases.create(userId, { name, deadline: str(action.deadline) });
+   304→        executed.push({ type: 'PROJECT', action: 'CREATED', summary: `عملتلك مشروع «${created.name}»`, refId: created.id });
+   305→        return;
+   306→      }
+   307→      case 'CREATE_PROJECT_WITH_TASKS': {
+   308→        const name = str(action.name) ?? str(action.title);
+   309→        if (!name) throw new Error('project breakdown without name');
+   310→        const created = await this.projectUseCases.create(userId, {
+   311→          name,
+   312→          description: str(action.description),
+   313→          deadline: str(action.deadline),
+   314→        });
+   315→        const rawTasks = Array.isArray(action.tasks) ? action.tasks.slice(0, 8) : [];
+   316→        const titles: string[] = [];
+   317→        for (const raw of rawTasks) {
+   318→          const t = (raw ?? {}) as Record<string, unknown>;
+   319→          const title = str(t.title);
+   320→          if (!title) continue;
+   321→          await this.taskUseCases.create(userId, {
+   322→            title,
+   323→            priority: str(t.priority) ?? 'MEDIUM',
+   324→            estimatedMinutes: num(t.estimatedMinutes),
+   325→            projectId: created.id,
+   326→          });
+   327→          titles.push(title);
+   328→        }
+   329→        executed.push({
+   330→          type: 'PROJECT',
+   331→          action: 'CREATED',
+   332→          summary:
+   333→            titles.length > 0
+   334→              ? `عملتلك مشروع «${created.name}» فيه ${titles.length} مهام: ${titles.join('، ')}`
+   335→              : `عملتلك مشروع «${created.name}»`,
+   336→          refId: created.id,
+   337→        });
+   338→        return;
+   339→      }
+   340→      case 'ADD_SUBTASKS': {
+   341→        const parentName = str(action.taskName) ?? str(action.title) ?? '';
+   342→        const all = await this.tasks.listAll(userId);
+   343→        const parent = matchTaskTitle(all, parentName);
+   344→        if (!parent) {
+   345→          executed.push({ type: 'TASK', action: 'EXECUTED', summary: `ملقيتش مهمة باسم «${parentName || '؟'}» أضيفلها خطوات` });
+   346→          return;
+   347→        }
+   348→        const rawSubtasks = Array.isArray(action.subtasks) ? action.subtasks.slice(0, 10) : [];
+   349→        let added = 0;
+   350→        for (const raw of rawSubtasks) {
+   351→          const title = typeof raw === 'string' ? raw.trim() : str((raw as Record<string, unknown>)?.title);
+   352→          if (!title) continue;
+   353→          await this.taskUseCases.create(userId, { title, parentId: parent.id, projectId: parent.projectId });
+   354→          added += 1;
+   355→        }
+   356→        executed.push({
+   357→          type: 'TASK',
+   358→          action: 'CREATED',
+   359→          summary:
+   360→            added > 0
+   361→              ? `ضفت ${added} ${added === 1 ? 'خطوة' : 'خطوات'} تحت «${parent.title}»`
+   362→              : `مفيش خطوات أقدر أضيفها تحت «${parent.title}»`,
+   363→          refId: parent.id,
+   364→        });
+   365→        return;
+   366→      }
+   367→      case 'COMPLETE_TASK': {
+   368→        const all = await this.tasks.listAll(userId);
+   369→        const task = matchTaskTitle(all, str(action.taskName) ?? str(action.title) ?? '');
+   370→        if (!task) {
+   371→          executed.push({ type: 'TASK', action: 'EXECUTED', summary: `ملقيتش مهمة باسم «${str(action.taskName) ?? '؟'}» عشان أقفلها` });
+   372→          return;
+   373→        }
+   374→        await this.taskUseCases.update(userId, task.id, { status: 'COMPLETED' });
+   375→        executed.push({ type: 'TASK_COMPLETED', action: 'COMPLETED', summary: `برافو! قفلت مهمة «${task.title}» ✅`, refId: task.id });
+   376→        return;
+   377→      }
+   378→      case 'DELETE_TASK': {
+   379→        const all = await this.tasks.listAll(userId);
+   380→        const task = matchTaskTitle(all, str(action.taskName) ?? '');
+   381→        if (!task) {
+   382→          executed.push({ type: 'TASK', action: 'EXECUTED', summary: `ملقيتش مهمة باسم «${str(action.taskName) ?? '؟'}»` });
+   383→          return;
+   384→        }
+   385→        this.pendingCounter += 1;
+   386→        pending.push({
+   387→          id: `p${this.pendingCounter}_${Date.now()}`,
+   388→          type: 'DELETE_TASK',
+   389→          title: task.title,
+   390→          summary: `مسح مهمة «${task.title}»`,
+   391→          payload: { taskId: task.id },
+   392→        });
+   393→        return;
+   394→      }
+   395→      case 'UPDATE_TASK': {
+   396→        const all = await this.tasks.listAll(userId);
+   397→        const task = matchTaskTitle(all, str(action.taskName) ?? '');
+   398→        if (!task) {
+   399→          executed.push({ type: 'TASK', action: 'EXECUTED', summary: `ملقيتش مهمة باسم «${str(action.taskName) ?? '؟'}»` });
+   400→          return;
+   401→        }
+   402→        const fields = sanitizeTaskFields(action.fields);
+   403→        this.pendingCounter += 1;
+   404→        pending.push({
+   405→          id: `p${this.pendingCounter}_${Date.now()}`,
+   406→          type: 'UPDATE_TASK',
+   407→          title: task.title,
+   408→          summary: `تعديل مهمة «${task.title}»: ${describeFields(fields)}`,
+   409→          payload: { taskId: task.id, fields },
+   410→        });
+   411→        return;
+   412→      }
+   413→      case 'DELETE_EVENT': {
+   414→        const eventName = str(action.eventName) ?? '';
+   415→        const event = await this.matchEvent(userId, eventName);
+   416→        if (!event) {
+   417→          executed.push({ type: 'EVENT', action: 'EXECUTED', summary: `ملقيتش حدث باسم «${eventName || '؟'}»` });
+   418→          return;
+   419→        }
+   420→        this.pendingCounter += 1;
+   421→        pending.push({
+   422→          id: `p${this.pendingCounter}_${Date.now()}`,
+   423→          type: 'DELETE_EVENT',
+   424→          title: event.title,
+   425→          summary: `مسح حدث «${event.title}»`,
+   426→          payload: { eventId: event.id },
+   427→        });
+   428→        return;
+   429→      }
+   430→      case 'PLAN_DAY': {
+   431→        const dateStr = str(action.date);
+   432→        const plan = await this.planningUseCases.generatePlan(userId, dateStr ?? undefined);
+   433→        executed.push({
+   434→          type: 'PLAN',
+   435→          action: 'EXECUTED',
+   436→          summary: `ظبطتلك خطة ${dateStr ? relativeDayArabic(parseWallIso(dateStr), nowWall()) : 'النهارده'} — ${plan.slots.length} ${plan.slots.length === 1 ? 'مهمة مجدولة' : 'مهام مجدولة'}`,
+   437→        });
+   438→        setQuery({
+   439→          queryType: 'PLAN_RESULT',
+   440→          question: 'عرض الخطة',
+   441→          data: { date: plan.date, slots: plan.slots, unplanned: plan.unplanned },
+   442→        });
+   443→        return;
+   444→      }
+   445→      case 'QUERY': {
+   446→        const queryType = (str(action.queryType) ?? 'GENERAL').toUpperCase();
+   447→        const question = str(action.question) ?? str(action.raw) ?? 'سؤال المستخدم';
+   448→        const data = await this.fetchQueryData(userId, queryType);
+   449→        setQuery({ queryType, question, data });
+   450→        return;
+   451→      }
+   452→      case 'CHITCHAT':
+   453→        return; // handled after the loop
+   454→      default:
+   455→        throw new Error(`unknown action type: ${type}`);
+   456→    }
+   457→  }
+   458→
+   459→  private async fetchQueryData(userId: string, queryType: string): Promise<Record<string, unknown>> {
+   460→    const now = nowWall();
+   461→    switch (queryType) {
+   462→      case 'FINANCE_SUMMARY': {
+   463→        const s = await this.financeUseCases.summary(userId);
+   464→        return {
+   465→          monthSpent: s.monthSpent,
+   466→          budget: s.budget,
+   467→          remaining: s.remaining,
+   468→          spentToday: s.spentToday,
+   469→          incomeThisMonth: s.incomeThisMonth,
+   470→          dailyAverage: Math.round(s.dailyAverage),
+   471→          byCategory: s.byCategory.slice(0, 5),
+   472→          categoryLimits: s.categoryLimits,
+   473→          report: s.report,
+   474→        };
+   475→      }
+   476→      case 'BUDGET_STATUS': {
+   477→        const s = await this.financeUseCases.summary(userId);
+   478→        return {
+   479→          budget: s.budget,
+   480→          monthSpent: s.monthSpent,
+   481→          remaining: s.remaining,
+   482→          expectedRecurringRestOfMonth: s.expectedRecurringRestOfMonth,
+   483→          dailyAverage: Math.round(s.dailyAverage),
+   484→          categoryLimits: s.categoryLimits,
+   485→          report: s.report,
+   486→        };
+   487→      }
+   488→      case 'MONTH_REPORT': {
+   489→        const s = await this.financeUseCases.summary(userId);
+   490→        const prev = s.report.lastMonthSpent;
+   491→        return {
+   492→          month: s.month,
+   493→          budget: s.budget,
+   494→          monthSpent: s.monthSpent,
+   495→          remaining: s.remaining,
+   496→          incomeThisMonth: s.incomeThisMonth,
+   497→          dailyAverage: Math.round(s.dailyAverage),
+   498→          report: s.report,
+   499→          byCategory: s.byCategory.slice(0, 5),
+   500→          lastMonthSpent: prev,
+   501→        };
+   502→      }
+   503→      case 'PRODUCTIVITY': {
+   504→        const all = await this.tasks.listAll(userId);
+   505→        const completed = all.filter(
+   506→          (t) => t.completedAt && now.getTime() - t.completedAt.getTime() <= 30 * 86_400_000
+   507→        );
+   508→        const byHour = new Array<number>(24).fill(0);
+   509→        for (const t of completed) byHour[t.completedAt!.getUTCHours()] += 1;
+   510→        const maxHour = Math.max(...byHour);
+   511→        const peakHours =
+   512→          maxHour > 0
+   513→            ? byHour
+   514→                .map((c, h) => ({ c, h }))
+   515→                .filter((x) => x.c >= Math.max(1, Math.round(maxHour * 0.6)))
+   516→                .map((x) => x.h)
+   517→            : [];
+   518→        const last7 = completed.filter(
+   519→          (t) => now.getTime() - t.completedAt!.getTime() <= 7 * 86_400_000
+   520→        ).length;
+   521→        const last14 = completed.filter(
+   522→          (t) => now.getTime() - t.completedAt!.getTime() <= 14 * 86_400_000
+   523→        ).length;
+   524→        const samples = completed.filter(
+   525→          (t) => (t.estimatedMinutes ?? 0) > 0 && t.actualMinutes > 0
+   526→        );
+   527→        const avgEst = samples.length
+   528→          ? Math.round(samples.reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0) / samples.length)
+   529→          : null;
+   530→        const avgAct = samples.length
+   531→          ? Math.round(samples.reduce((s, t) => s + t.actualMinutes, 0) / samples.length)
+   532→          : null;
+   533→        const driftPct =
+   534→          avgEst && avgEst > 0 && avgAct !== null
+   535→            ? Math.round(((avgAct - avgEst) / avgEst) * 100)
+   536→            : null;
+   537→        return {
+   538→          completionsLast7Days: last7,
+   539→          completionsLast14Days: last14,
+   540→          avgCompletionsPerDay: Math.round((last14 / 14) * 10) / 10,
+   541→          peakCompletionHours: peakHours,
+   542→          durationSamplesCount: samples.length,
+   543→          avgEstimatedMinutes: avgEst,
+   544→          avgActualMinutes: avgAct,
+   545→          driftPct,
+   546→          chronicOverdueTitles: all
+   547→            .filter(
+   548→              (t) =>
+   549→                (t.status === 'TODO' || t.status === 'IN_PROGRESS') &&
+   550→                t.deadline &&
+   551→                now.getTime() - t.deadline.getTime() > 2 * 86_400_000
+   552→            )
+   553→            .slice(0, 5)
+   554→            .map((t) => t.title),
+   555→        };
+   556→      }
+   557→      case 'TODAY_SCHEDULE': {
+   558→        const day = dayKeyOf(now);
+   559→        const occurrences = await this.dayOccurrences(userId, day);
+   560→        return { day, items: occurrences.map((o) => ({ time: fmtHHMM(new Date(o.startAt)), title: o.title, kind: o.kind, status: o.status ?? null })) };
+   561→      }
+   562→      case 'TASKS_STATUS': {
+   563→        const all = await this.tasks.listAll(userId);
+   564→        const open = all.filter((t) => t.status === 'TODO' || t.status === 'IN_PROGRESS');
+   565→        const overdue = open.filter((t) => t.deadline && t.deadline < now);
+   566→        const completedToday = all.filter((t) => t.completedAt && dayKeyOf(t.completedAt) === dayKeyOf(now)).length;
+   567→        return {
+   568→          activeTotal: open.length,
+   569→          overdueCount: overdue.length,
+   570→          overdueTitles: overdue.slice(0, 5).map((t) => t.title),
+   571→          completedToday,
+   572→          nextDeadlines: open
+   573→            .filter((t) => t.deadline)
+   574→            .sort((a, b) => (a.deadline?.getTime() ?? 0) - (b.deadline?.getTime() ?? 0))
+   575→            .slice(0, 5)
+   576→            .map((t) => ({ title: t.title, deadline: t.deadline ? dayKeyOf(t.deadline) : null })),
+   577→        };
+   578→      }
+   579→      case 'HABITS': {
+   580→        const [habits, fin] = await Promise.all([
+   581→          this.taskUseCases.listHabits(userId),
+   582→          this.financeUseCases.summary(userId),
+   583→        ]);
+   584→        return {
+   585→          habits: habits.map((h) => ({
+   586→            title: h.title,
+   587→            recurrence: h.recurrence,
+   588→            streak: h.streak,
+   589→            bestStreak: h.bestStreak,
+   590→            totalCompletions: h.totalCompletions,
+   591→            isDueToday: h.isDueToday,
+   592→            nextDue: h.deadline ? dayKeyOf(parseWallIso(h.deadline.slice(0, 10))) : null,
+   593→          })),
+   594→          recurringBills: (fin.upcomingRecurring ?? []).map((b) => ({
+   595→            name: b.description,
+   596→            amount: b.amount,
+   597→            nextDue: b.nextDueAt ? dayKeyOf(parseWallIso(b.nextDueAt.slice(0, 10))) : null,
+   598→          })),
+   599→        };
+   600→      }
+   601→      default: {
+   602→        const [summary, dayOccurrences, habits] = await Promise.all([
+   603→          this.financeUseCases.summary(userId),
+   604→          this.dayOccurrences(userId, dayKeyOf(now)),
+   605→          this.taskUseCases.listHabits(userId),
+   606→        ]);
+   607→        const allTasks = await this.tasks.listAll(userId);
+   608→        const open = allTasks.filter((t) => t.status === 'TODO' || t.status === 'IN_PROGRESS');
+   609→        return {
+   610→          today: dayKeyOf(now),
+   611→          scheduleToday: dayOccurrences.slice(0, 8).map((o) => ({ time: fmtHHMM(new Date(o.startAt)), title: o.title })),
+   612→          activeTasks: open.length,
+   613→          overdueTasks: open.filter((t) => t.deadline && t.deadline < now).length,
+   614→          monthSpent: summary.monthSpent,
+   615→          budget: summary.budget,
+   616→          remaining: summary.remaining,
+   617→          spentToday: summary.spentToday,
+   618→          habits: habits.map((h) => ({
+   619→            title: h.title,
+   620→            recurrence: h.recurrence,
+   621→            streak: h.streak,
+   622→            bestStreak: h.bestStreak,
+   623→            totalCompletions: h.totalCompletions,
+   624→            isDueToday: h.isDueToday,
+   625→          })),
+   626→          recurringBills: (summary.upcomingRecurring ?? []).map((b) => ({
+   627→            name: b.description,
+   628→            amount: b.amount,
+   629→            nextDue: b.nextDueAt ? b.nextDueAt.slice(0, 10) : null,
+   630→          })),
+   631→        };
+   632→      }
+   633→    }
+   634→  }
+   635→
+   636→  private async dayOccurrences(userId: string, day: string): Promise<OccurrenceDTO[]> {
+   637→    const [events, slots, tasks] = await Promise.all([
+   638→      this.events.listAll(userId),
+   639→      this.plans.listSlotsForDay(userId, parseWallIso(day), new Date(parseWallIso(day).getTime() + 86_400_000)),
+   640→      this.tasks.listAll(userId),
+   641→    ]);
+   642→    const taskMap = new Map(tasks.map((t) => [t.id, t]));
+   643→    const out: OccurrenceDTO[] = [];
+   644→    for (const e of events) {
+   645→      if (dayKeyOf(e.startAt) !== day && !e.recurrence) continue;
+   646→      out.push({ key: `e-${e.id}`, kind: 'EVENT', refId: e.id, title: e.title, startAt: e.startAt.toISOString(), endAt: e.endAt?.toISOString() ?? null, isRecurring: Boolean(e.recurrence) });
+   647→    }
+   648→    for (const s of slots) {
+   649→      const t = taskMap.get(s.taskId);
+   650→      out.push({ key: `s-${s.id}`, kind: 'PLANNED_TASK', refId: s.id, taskId: s.taskId, title: t?.title ?? 'مهمة', startAt: s.startAt.toISOString(), endAt: s.endAt.toISOString(), status: s.status });
+   651→    }
+   652→    return out.sort((a, b) => a.startAt.localeCompare(b.startAt));
+   653→  }
+   654→
+   655→  private async buildContext(userId: string): Promise<AiUserContext> {
+   656→    const [user, projects, tasks] = await Promise.all([
+   657→      this.users.findById(userId),
+   658→      this.projects.listAll(userId),
+   659→      this.tasks.listAll(userId),
+   660→    ]);
+   661→    const now = nowWall();
+   662→    const open = tasks.filter((t) => t.status === 'TODO' || t.status === 'IN_PROGRESS');
+   663→    return {
+   664→      userName: user?.name ?? 'صاحبي',
+   665→      firstName: (user?.name ?? 'صاحبي').split(' ')[0],
+   666→      nowIso: now.toISOString().slice(0, 16),
+   667→      weekdayName: weekdayArabic(now),
+   668→      dayKey: dayKeyOf(now),
+   669→      projects: projects.slice(0, 15).map((p) => p.name),
+   670→      openTasks: open.slice(0, 25).map((t) => ({ id: t.id, title: t.title })),
+   671→    };
+   672→  }
+   673→
+   674→  private async resolveProjectId(userId: string, projectName?: string | null): Promise<string | null> {
+   675→    if (!projectName) return null;
+   676→    const projects = await this.projects.listAll(userId);
+   677→    const target = projectName.trim().toLowerCase();
+   678→    const found = projects.find((p) => p.name.toLowerCase() === target || p.name.toLowerCase().includes(target));
+   679→    return found?.id ?? null;
+   680→  }
+   681→
+   682→  private async matchEvent(userId: string, needle: string): Promise<EventRecord | null> {
+   683→    if (!needle) return null;
+   684→    const events = await this.events.listAll(userId);
+   685→    const target = needle.trim().toLowerCase();
+   686→    return (
+   687→      events.find((e) => e.title.toLowerCase() === target) ??
+   688→      events.find((e) => e.title.toLowerCase().includes(target)) ??
+   689→      null
+   690→    );
+   691→  }
+   692→
+   693→  private taskSummary(task: TaskDTO): string {
+   694→    const now = nowWall();
+   695→    let text = `عملتلك مهمة «${task.title}»`;
+   696→    if (task.deadline) {
+   697→      const deadline = parseWallIso(task.deadline);
+   698→      text += ` — آخر موعد ${relativeDayArabic(deadline, now)}`;
+   699→      const isMidnight = deadline.getUTCHours() === 23 && deadline.getUTCMinutes() === 59;
+   700→      if (!isMidnight) text += ` الساعة ${fmtHHMM(deadline)}`;
+   701→    }
+   702→    if (task.estimatedMinutes) text += ` (تقريبًا ${task.estimatedMinutes} دقيقة)`;
+   703→    return text;
+   704→  }
+   705→
+   706→  private eventSummary(title: string, startAtIso: string): string {
+   707→    const start = parseWallIso(startAtIso);
+   708→    return `ضفت «${title}» ${relativeDayArabic(start, nowWall())} الساعة ${fmtHHMM(start)}`;
+   709→  }
+   710→
+   711→  private buildReply(
+   712→    firstName: string,
+   713→    executed: ExecutedActionDTO[],
+   714→    pending: PendingActionDTO[],
+   715→    failed: string[]
+   716→  ): string {
+   717→    const openers = ['تمام', 'ماشي', 'تحت أمرك', 'تم'];
+   718→    const opener = openers[Math.floor(Math.random() * openers.length)];
+   719→    const parts: string[] = [];
+   720→
+   721→    if (executed.length > 0) {
+   722→      parts.push(`${opener} يا ${firstName}: ${executed.map((e) => e.summary).join('، وكمان ')}.`);
+   723→    }
+   724→    if (pending.length > 0) {
+   725→      parts.push(`الطلبية دي محتاجة تأكيد منك: ${pending.map((p) => p.summary).join('، ')}. لو موافق دوس «تأكيد» 👌`);
+   726→    }
+   727→    if (failed.length > 0) {
+   728→      parts.push(`معلش، معرفتش أنفذ (${failed.join('، ')}) — جرب تاني.`);
+   729→    }
+   730→    return parts.join(' ');
+   731→  }
+   732→
+   733→  private async safeAnswerQuestion(query: QueryDataDTO, firstName: string): Promise<string> {
+   734→    try {
+   735→      return await this.ai.answerQuestion({
+   736→        question: query.question,
+   737→        dataJson: JSON.stringify(query.data),
+   738→        userName: firstName,
+   739→      });
+   740→    } catch {
+   741→      return this.fallbackDataReply(query);
+   742→    }
+   743→  }
+   744→
+   745→  private fallbackDataReply(query: QueryDataDTO): string {
+   746→    const lines: string[] = [];
+   747→    const d = query.data as Record<string, unknown>;
+   748→    if (d.monthSpent !== undefined) lines.push(`صرفت الشهر ده حوالي ${Math.round(Number(d.monthSpent))} جنيه`);
+   749→    if (d.remaining !== undefined && d.remaining !== null) lines.push(`والباقي من الميزانية ${Math.round(Number(d.remaining))} جنيه`);
+   750→    if (d.spentToday !== undefined) lines.push(`النهارده صرفت ${Math.round(Number(d.spentToday))} جنيه`);
+   751→    if (d.activeTotal !== undefined) lines.push(`عندك ${d.activeTotal} مهام شغالة`);
+   752→    const rawItems = d.items as unknown;
+   753→    if (Array.isArray(rawItems) && rawItems.length > 0) {
+   754→      const items = rawItems as { time?: string; title: string }[];
+   755→      lines.push(`جدولك: ${items.map((i) => `${i.time ? i.time + ' ' : ''}${i.title}`).join('، ')}`);
+   756→    }
+   757→    return lines.length > 0 ? lines.join('، ') + '.' : 'مفيش بيانات كفاية أجاوب منها لسه.';
+   758→  }
+   759→
+   760→  private async safeSmallTalk(message: string, firstName: string): Promise<string> {
+   761→    try {
+   762→      return await this.ai.smallTalk({ message, userName: firstName });
+   763→    } catch {
+   764→      return `أنا معاك يا ${firstName} — قولّي عايز إني أعمل إيه؟`;
+   765→    }
+   766→  }
+   767→}
+   768→
+   769→// ---------------- helpers ----------------
+   770→
+   771→/**
+   772→ * Intent → command fallback for intent-only responses (Command
+   773→ * Generation safety net — keeps the pipeline resilient).
+   774→ */
+   775→function synthesizeActionFromIntent(intent: string, message: string): AiAction[] | null {
+   776→  const normalized = String(intent ?? '').toUpperCase();
+   777→  switch (normalized) {
+   778→    case 'QUERY':
+   779→      return [{ type: 'QUERY', queryType: 'GENERAL', question: message }];
+   780→    case 'CHITCHAT':
+   781→      return [{ type: 'CHITCHAT', message }];
+   782→    case 'PLAN_DAY':
+   783→      return [{ type: 'PLAN_DAY', date: null }];
+   784→    default:
+   785→      return null;
+   786→  }
+   787→}
+   788→
+   789→function str(value: unknown): string | undefined {
+   790→  if (value === null || value === undefined) return undefined;
+   791→  const s = String(value).trim();
+   792→  return s.length > 0 ? s : undefined;
+   793→}
+   794→
+   795→function num(value: unknown): number | undefined {
+   796→  if (value === null || value === undefined || value === '') return undefined;
+   797→  const n = Number(value);
+   798→  return Number.isFinite(n) ? n : undefined;
+   799→}
+   800→
+   801→function payloadValue(payload: Record<string, unknown>, key: string): unknown {
+   802→  return payload?.[key];
+   803→}
+   804→
+   805→function actionLabel(action: AiAction): string {
+   806→  const t = String(action.type ?? 'action').toUpperCase();
+   807→  const title = str(action.title) ?? str(action.taskName) ?? str(action.eventName) ?? str(action.name) ?? '';
+   808→  return title ? `${t} «${title}»` : t;
+   809→}
+   810→
+   811→function sanitizeTaskFields(raw: unknown): Record<string, unknown> {
+   812→  const fields = (raw ?? {}) as Record<string, unknown>;
+   813→  const out: Record<string, unknown> = {};
+   814→  if (str(fields.title)) out.title = str(fields.title);
+   815→  if (str(fields.priority)) out.priority = str(fields.priority);
+   816→  if (str(fields.deadline)) out.deadline = str(fields.deadline);
+   817→  if (num(fields.estimatedMinutes) !== undefined) out.estimatedMinutes = num(fields.estimatedMinutes);
+   818→  if (fields.description !== undefined) out.description = str(fields.description) ?? null;
+   819→  return out;
+   820→}
+   821→
+   822→function describeFields(fields: Record<string, unknown>): string {
+   823→  const labels: Record<string, string> = {
+   824→    title: 'العنوان',
+   825→    priority: 'الأولوية',
+   826→    deadline: 'الموعد',
+   827→    estimatedMinutes: 'المدة',
+   828→    description: 'الوصف',
+   829→  };
+   830→  return Object.entries(fields)
+   831→    .map(([key, value]) => `${labels[key] ?? key}: ${String(value)}`)
+   832→    .join('، ') || 'تحديث';
+   833→}
+   834→
+   835→function formatAmount(amount: number): string {
+   836→  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+   837→}
+   838→

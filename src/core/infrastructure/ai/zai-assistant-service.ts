@@ -73,7 +73,7 @@ function buildInterpretSystemPrompt(context: InterpretInput['context']): string 
 {"intent":"<INTENT>","actions":[<ACTION>،...]}
 
 INTENT يكون واحد من:
-CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, UPDATE_EXPENSE, UPDATE_INCOME, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, SUGGEST_PLAN, UNKNOWN
+CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PROJECT, COMPLETE_TASK, DELETE_TASK, UPDATE_TASK, DELETE_EVENT, UPDATE_EXPENSE, UPDATE_INCOME, POSTPONE, TRANSFER_BUDGET, PLAN_DAY, QUERY, CHITCHAT, MULTI_ACTION, SUGGEST_PLAN, UNKNOWN
 
 أنواع الـ Actions (التزم بالحقول دي بالظبط):
 {"type":"CREATE_TASK","title":"...","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":null|عدد الدقايق,"deadline":null|"YYYY-MM-DDTHH:mm:ss","projectName":null|"اسم المشروع","description":null|"وصف"}
@@ -89,6 +89,8 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 {"type":"DELETE_EVENT","eventName":"اسم الحدث"}
 {"type":"UPDATE_EXPENSE","expenseName":"اسم المصروف زي ما هو مسجل (الوصف)","amount":null|عدد جديد,"category":null|"FOOD"|"TRANSPORT"|"EDUCATION"|"PROJECTS"|"BILLS"|"SHOPPING"|"ENTERTAINMENT"|"OTHER"}
 {"type":"UPDATE_INCOME","incomeName":"مصدر الدخل زي ما هو مسجل","amount":عدد جديد}
+{"type":"POSTPONE","taskName":"اسم المهمة الموجودة","toDate":"YYYY-MM-DD","toTime":null|"HH:mm"}
+{"type":"TRANSFER_BUDGET","fromCategory":"FOOD"|"TRANSPORT"|"EDUCATION"|"PROJECTS"|"BILLS"|"SHOPPING"|"ENTERTAINMENT"|"OTHER","toCategory":"نفس القائمة","amount":عدد}
 {"type":"CREATE_PROJECT_WITH_TASKS","name":"اسم المشروع","description":null,"deadline":null|"YYYY-MM-DD","tasks":[{"title":"خطوة مختصرة","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":عدد|null}]}
 {"type":"ADD_SUBTASKS","taskName":"اسم المهمة الموجودة","subtasks":["خطوة 1","خطوة 2","خطوة 3"]}
 {"type":"PLAN_DAY","date":null|"YYYY-MM-DD"}
@@ -114,7 +116,9 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 16. لو المستخدم عايز يصحّح دخل اتسجل قبل كده (مثال: "الراتب اللي سجلته كان 9000 مش 8000"، "دخل الفريلانس كان 3000 مش 2500") → action واحد UPDATE_INCOME باسم مصدر الدخل (incomeName) والمبلغ الجديد. ممنوع تستخدمه لدخل جديد.
 17. لو المستخدم بيسأل عن عاداته أو التزاماته المتكررة أو سلسلة التزامه (مثال: "إيه عاداتي المتكررة؟"، "عندي إيه عادات؟"، "الفاتورات اللي بتتكرر إيه حكاها؟") → intent=QUERY و queryType=HABITS.
 18. "إيه أحسن وقت بتنجز فيه؟"، "إنتاجيتي عاملة إيه؟"، "بتخلص قد إيه مهام في اليوم؟" → QUERY بـ queryType=PRODUCTIVITY. و"تقرير الشهر"، "صرفي الشهر ده مقارنة باللي فات"، "هخلص من ميزانيتي كام؟" → QUERY بـ queryType=MONTH_REPORT.
-19. ممنوع تطلع أي حاجة غير الـ JSON.`;
+19. لو المستخدم عايز يؤجّل أو يخّر أو يورّح مهمة موجودة (مثال: "أجل مهمة X لبكرة"، "أخّر مذاكرة التاريخ لحد السبت"، "أورّحها لبعد بكرة الساعة 5"، "المهمة دي صعبة أخّرها لأول الأسبوع") → action واحد POSTPONE: toDate هو اليوم الجديد YYYY-MM-DD، وtoTime الساعة الجديدة بصيغة 24 ساعة ("17:00") لو قال ساعة محددة، ولو ماقالش ساعة خلي toTime=null. ممنوع تستخدم POSTPONE لمهمة جديدة — ده للتحويل لمواعيد موجودة بس.
+20. لو المستخدم عايز ينقل فلوس بين حودود صرف الفئات (مثال: "حول 100 جنيه من حد الأكل لحد المواصلات"، "زود حد المواصلات بـ 50 من حد التسوق"، "نقص حد الأكل 50 وحطهم في الترفيه") → action واحد TRANSFER_BUDGET: fromCategory هي الفئة اللي الفلوس بتخرج منها، toCategory اللي بتتضاف لها، وamount المبلغ. لازم الفئتين يبقوا مختلفتين. لو بيقول "زود حد X" من غير ما يحدد مصدر → استخدم SET_CATEGORY_BUDGET بالمبلغ الجديد الكلي.
+21. ممنوع تطلع أي حاجة غير الـ JSON.`;
 }
 
 export class ZaiAssistantService implements IAiAssistantService {

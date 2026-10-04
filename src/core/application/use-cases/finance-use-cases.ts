@@ -276,6 +276,48 @@ export class FinanceUseCases {
     await this.finance.setCategoryBudget(userId, target.getUTCMonth() + 1, target.getUTCFullYear(), cat, null);
   }
 
+  /**
+   * Moves budget room from one category limit to another (BRD §19).
+   * The source limit must exist and cannot go below zero.
+   */
+  async transferCategoryBudget(
+    userId: string,
+    fromCategory: string,
+    toCategory: string,
+    amount: number,
+    monthKey?: string
+  ): Promise<{ from: ExpenseCategory; to: ExpenseCategory; fromLimit: number; toLimit: number }> {
+    const from = this.validateCategory(fromCategory);
+    const to = this.validateCategory(toCategory);
+    for (const [raw, cat] of [
+      [fromCategory, from],
+      [toCategory, to],
+    ] as const) {
+      if (cat === 'OTHER' && raw && !(EXPENSE_CATEGORIES as readonly string[]).includes(raw.toUpperCase())) {
+        throw new ValidationError('الفئة دي مش معروفة');
+      }
+    }
+    if (from === to) throw new ValidationError('لازم تختار فئتين مختلفتين للتحويل');
+    const validated = this.validateAmount(amount);
+
+    const range = this.monthRange(monthKey);
+    const target = range.from ?? startOfMonth(nowWall());
+    const month = target.getUTCMonth() + 1;
+    const year = target.getUTCFullYear();
+
+    const limits = await this.finance.listCategoryBudgets(userId, month, year);
+    const fromLimit = limits.find((l) => l.category === from)?.amount ?? null;
+    if (fromLimit === null) throw new ValidationError(`مفيش حد صرف متظبط على الفئة دي أصلاً — ظبطه الأول`);
+    if (fromLimit - validated < 0) {
+      throw new ValidationError(`حد الفئة مش كفاية — المتبقي ${Math.round(fromLimit)} ج بس`);
+    }
+    const toLimit = limits.find((l) => l.category === to)?.amount ?? 0;
+
+    await this.finance.setCategoryBudget(userId, month, year, from, fromLimit - validated);
+    await this.finance.setCategoryBudget(userId, month, year, to, toLimit + validated);
+    return { from, to, fromLimit: fromLimit - validated, toLimit: toLimit + validated };
+  }
+
   async summary(userId: string, monthKey?: string): Promise<FinanceSummaryDTO> {
     const now = nowWall();
     const range = this.monthRange(monthKey);

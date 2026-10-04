@@ -56,6 +56,18 @@ function pct(diff: number, base: number): number {
 export function financeInsights(s: FinanceSnapshot): InsightDTO[] {
   const out: InsightDTO[] = [];
 
+  // New month without a budget → nudge to set one (BRD §19/§17).
+  if (!s.monthlyBudget || s.monthlyBudget <= 0) {
+    out.push(
+      makeInsight(
+        'SUGGESTION',
+        'FINANCE',
+        '💰',
+        'الشهر ده لسه من غير ميزانية! ظبط ميزانية من صفحة الفلوس — أو انسخ بتاعة الشهر اللي فات بضغطة واحدة.'
+      )
+    );
+  }
+
   if (s.spentToday > 0 && s.avgDailySpend > 0) {
     const diffPct = pct(s.spentToday - s.avgDailySpend, s.avgDailySpend);
     if (Math.abs(diffPct) >= 25) {

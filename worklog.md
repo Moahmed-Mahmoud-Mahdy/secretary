@@ -335,3 +335,35 @@ Task: Status assessment + browser QA + dark mode + month report card + AI MONTH_
 - Streak-at-risk only fires for habits due TODAY; a WEEKLY habit due mid-week never gets the evening nudge (by design).
 - Next round suggestions: category-to-category transfers (BRD §19); PWA offline shell (service worker + manifest theme dark variant); per-category month report drill-down; TTS voice comparison (xiaochen/kazi vs tongtong) for Arabic; AI natural-language reschedule ("أجل مهمة X لبكرة") as dedicated POSTPONE action; budget copy auto-suggestion insight when new month starts.
 - QA artifacts: download/dark-home.png, dark-tasks.png, dark-finance2/3.png, dark-calendar.png, dark-assistant.png, light-finance.png, final-light-home5.png, final-dark-home.png.
+
+---
+Task ID: cron-20261004-7
+Agent: main (Z.ai Code) — webDevReview round 7
+Task: Status assessment + browser QA + new features (AI POSTPONE, category transfers, no-budget insight) + styling
+
+## Current project status
+- STABLE. Pre-work baseline QA (agent-browser + lint + tsc) passed: home renders (evening greeting, hero suggestion), lint clean, tsc clean for app code (remaining tsc errors are only in external examples/ and skills/ folders — not app code). No new runtime errors in dev.log (the historical globals.css parse errors in the log predate this session; all recent requests 200).
+
+## This round: completed modifications & verification
+1. **AI POSTPONE action (BRD §6/§13 — natural-language rescheduling)** — full stack:
+   - Domain: IPlanRepository.`deleteFutureSlotsForTask(userId, taskId, from)` + Prisma impl (deletes PLANNED slots with startAt >= from).
+   - Enums: POSTPONE intent + POSTPONE/TRANSFER_BUDGET added to AI_ACTION_TYPES.
+   - Prompt: action schema {"type":"POSTPONE","taskName","toDate","toTime":null|"HH:mm"} + rule 19 (أجل/أخّر/أورّح مهمة موجودة → POSTPONE; new tasks still CREATE_TASK).
+   - Handler: matches task (fuzzy Arabic), updates deadline (toDate @ toTime or 23:59:59), then unschedules ALL of the task's open PLANNED slots.
+   - **Bug found & fixed during E2E**: initially deleted only slots with startAt >= now — a stale earlier-today slot (17:40, already past) survived the postponement. Changed to pass epoch → ALL open slots removed. Verified: today plan went 4 → 3 slots and the reply mentions the removal + suggests «نظملي يومي».
+   - E2E verified twice: "أجل مهمة أجيب هدية عيد ميلاد أخويا لبعد بكرة الساعة 6 مساءً" → deadline 2026-10-08→2026-10-06T18:00, old slot removed; "أجل مذاكرة ساعة قبل النوم لبكرة الساعة 10 مساءً" → 2026-10-05T22:00 + stale 17:40 slot deleted. Demo data restored afterwards (deadlines PATCHed back, day replanned via نظملي يومي — PLAN_DAY regression passed, 6 slots).
+2. **Category transfers (BRD §19)** — full stack:
+   - Application: FinanceUseCases.`transferCategoryBudget(userId, from, to, amount, monthKey?)` — validates distinct categories, source limit exists, result >= 0 (Arabic errors: "لازم تختار فئتين مختلفتين" / "مفيش حد صرف متظبط على الفئة دي أصلاً" / "حد الفئة مش كفاية — المتبقي X ج بس").
+   - API: POST /api/budget/transfer {from, to, amount, month?}. Edge cases curl-verified (same category → error; missing source limit → error; valid → returns new limits).
+   - AI: new action TRANSFER_BUDGET (rule 20: "حول 100 من حد الأكل لحد المواصلات" → TRANSFER_BUDGET; "زود حد X" بدون مصدر → SET_CATEGORY_BUDGET). Verified live: FOOD 1200→1100, TRANSPORT 400→500.
+   - UI: "حوّل" button in حدود الفئات header (current month + has limits) → Dialog (من فئة = limited categories, لفئة = all others excluding source, amount, live emerald/rose preview "حد أكل وشرب هيبقى 1150 ج — وحد ترفيه هيبقى 50 ج", submit disabled until valid). E2E via browser: FOOD→ENTERTAINMENT 50 → toast + new ترفيه row + FOOD progress updated; reverted via API + limit removed. Radix Selects need click-interaction (agent-browser select doesn't work on them — noted for future QA).
+3. **New-month no-budget SUGGESTION insight** — financeInsights now emits SUGGESTION "الشهر ده لسه من غير ميزانية!..." when monthlyBudget null (dashboard feed; complements the existing copy-last-month chip in finance view).
+4. **Assistant styling [mandatory]**: quick-prompt chips under welcome (نظملي يومي / قد إيه صرفت الشهر ده؟ / إيه مهامي اللي فاضلة؟ / إيه عاداتي وسلسلتي؟ — click-to-send, amber pills, hidden once conversation starts); per-message HH:MM timestamps (TimeTag, shown for new messages); user bubble upgraded to amber gradient (amber-500→600) with shadow; assistant bubble hover (shadow + amber border); TTS button hover scale-110; ACTION_ICON map extended (POSTPONE ⏩, TRANSFER_BUDGET 🔁, SET_CATEGORY_BUDGET 🎯, CREATE_PROJECT_WITH_TASKS 🗂️, ADD_SUBTASKS 🪄, UPDATE_EXPENSE/UPDATE_INCOME ✏️/💵).
+5. QA artifacts: download/qa-round7-*.png (baseline home, assistant chips, assistant chat with timestamps, transfer dialog, limits after transfer, finance light, home light). Demo data restored to seed state (limits BILLS 600 / TRANSPORT 400 / FOOD 1200, original deadlines, fresh today plan).
+
+## Unresolved issues / risks & next priorities
+- POSTPONE removes slots but does NOT auto-slot the task into the target day (reply suggests «نظملي يومي») — predictable-by-design; could auto-regenerate target-day plan later if desired.
+- Transfer previews/validates against the limit ceiling (not remaining budget room) — matches backend rule.
+- Chat timestamps only appear for messages sent after this deploy (old localStorage messages have no `at`).
+- agent-browser `select` command doesn't work on Radix Select — must click trigger + option in future QA.
+- Next round suggestions: auto-slot postponed task into target day free gap; per-category month report drill-down; TTS voice comparison for Arabic; PWA service worker (offline shell); budget auto-copy prompt notification on new month (backend REMINDER on month rollover); streak "caught up" celebration animation.

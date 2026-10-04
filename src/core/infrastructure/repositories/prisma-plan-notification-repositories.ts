@@ -54,6 +54,13 @@ export class PrismaPlanRepository implements IPlanRepository {
     return result.count > 0;
   }
 
+  async deleteFutureSlotsForTask(userId: string, taskId: string, from: Date): Promise<number> {
+    const result = await this.db.planSlot.deleteMany({
+      where: { userId, taskId, startAt: { gte: from }, status: 'PLANNED' },
+    });
+    return result.count;
+  }
+
   private toRecord(s: PlanSlotRow): PlanSlotRecord {
     return {
       id: s.id,

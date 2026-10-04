@@ -157,6 +157,8 @@ export interface IPlanRepository {
     slots: { taskId: string; startAt: Date; endAt: Date }[]
   ): Promise<void>;
   updateSlotStatus(userId: string, slotId: string, status: PlanSlotStatus): Promise<boolean>;
+  /** Removes a task's open (PLANNED) slots from `from` onwards — used when a task is postponed. Returns the deleted count. */
+  deleteFutureSlotsForTask(userId: string, taskId: string, from: Date): Promise<number>;
 }
 
 export interface CreateNotificationData {

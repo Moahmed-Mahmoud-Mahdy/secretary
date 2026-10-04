@@ -284,6 +284,52 @@ export class AiChatUseCases {
         executed.push({ type: 'BUDGET', action: 'CREATED', summary: `ظبطت ميزانية الشهر على ${formatAmount(amount)} جنيه` });
         return;
       }
+      case 'TRANSFER_BUDGET': {
+        const fromCategory = str(action.fromCategory) ?? str(action.from);
+        const toCategory = str(action.toCategory) ?? str(action.to);
+        const amount = num(action.amount);
+        if (!fromCategory || !toCategory || !amount) throw new Error('transfer without full data');
+        const res = await this.financeUseCases.transferCategoryBudget(userId, fromCategory, toCategory, amount);
+        const fromLabel = CATEGORY_LABELS_AR[res.from] ?? fromCategory;
+        const toLabel = CATEGORY_LABELS_AR[res.to] ?? toCategory;
+        executed.push({
+          type: 'BUDGET',
+          action: 'EXECUTED',
+          summary: `حوّلت ${formatAmount(amount)} ج من حد ${fromLabel} لحد ${toLabel} — بقى ${fromLabel} ${formatAmount(res.fromLimit)} ج و${toLabel} ${formatAmount(res.toLimit)} ج`,
+        });
+        return;
+      }
+      case 'POSTPONE': {
+        const all = await this.tasks.listAll(userId);
+        const task = matchTaskTitle(all, str(action.taskName) ?? str(action.title) ?? '');
+        if (!task) {
+          executed.push({
+            type: 'TASK',
+            action: 'EXECUTED',
+            summary: `ملقيتش مهمة مفتوحة باسم «${str(action.taskName) ?? '؟'}» عشان أأجّلها`,
+          });
+          return;
+        }
+        const toDate = str(action.toDate) ?? str(action.date);
+        if (!toDate || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('postpone without valid toDate');
+        const toTime = str(action.toTime);
+        const timeMatch = toTime?.match(/^(\d{1,2}):(\d{2})/);
+        const hh = timeMatch ? String(Math.min(23, Number(timeMatch[1]))).padStart(2, '0') : null;
+        const mm = timeMatch ? timeMatch[2] : null;
+        const deadlineIso = hh && mm ? `${toDate}T${hh}:${mm}:00` : `${toDate}T23:59:59`;
+        const updated = await this.taskUseCases.update(userId, task.id, { deadline: deadlineIso });
+        const newDeadline = parseWallIso(deadlineIso);
+        // Unschedule ALL of the task's open (PLANNED) slots — including stale
+        // ones earlier today: the plan must reflect the postponement (BRD §13).
+        const removed = await this.plans.deleteFutureSlotsForTask(userId, task.id, new Date(0));
+        let summary = `أجّلت «${updated.title}» لـ ${relativeDayArabic(newDeadline, nowWall())}`;
+        if (hh && mm) summary += ` الساعة ${fmtHHMM(newDeadline)}`;
+        if (removed > 0) {
+          summary += ` — وشلت ${removed === 1 ? 'موضعها القديم' : `${removed} مواضع قديمة ليها`} من الخطة. لو عايزني أحطها في يوم جديد قول «نظملي يومي»`;
+        }
+        executed.push({ type: 'TASK', action: 'EXECUTED', summary, refId: task.id });
+        return;
+      }
       case 'SET_CATEGORY_BUDGET': {
         const amount = num(action.amount);
         const category = str(action.category) ?? 'OTHER';
