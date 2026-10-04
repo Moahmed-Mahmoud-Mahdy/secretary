@@ -12,6 +12,7 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { NotificationsBell } from '@/components/sekretir/notifications-popover';
+import { ThemeToggle } from '@/components/sekretir/theme-provider';
 import { apiErrorMessage, endpoints, type UserDTO } from '@/lib/sekretir/api';
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
@@ -96,6 +97,7 @@ export function AppShell({ user, view, onNavigate, onLogout, refreshKey, childre
               {user.name}
             </span>
             <NotificationsBell refreshKey={refreshKey} />
+            <ThemeToggle />
             <Button
               variant="ghost"
               size="icon"

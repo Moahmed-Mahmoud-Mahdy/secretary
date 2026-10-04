@@ -365,6 +365,48 @@ export class DashboardUseCases {
       }
     }
 
+    // Habit streak-at-risk (BRD §16/§28): in the evening (>= 20:00 Cairo),
+    // nudge the user to check in a due habit that has an alive streak —
+    // one skipped day breaks the chain. Deduped per habit/day.
+    if (now.getUTCHours() >= 20) {
+      const hist = new Map<string, { history: TaskRecord[] }>();
+      for (const t of tasks) {
+        if (t.status !== 'COMPLETED' || !t.completedAt || !t.recurrence) continue;
+        const key = `${t.recurrence}::${normalizeArabic(t.title)}`;
+        const g = hist.get(key);
+        if (g) g.history.push(t);
+        else hist.set(key, { history: [t] });
+      }
+      const openRecurring = tasks.filter(
+        (t) => t.recurrence !== null && t.parentId === null && (t.status === 'TODO' || t.status === 'IN_PROGRESS')
+      );
+      for (const habit of openRecurring) {
+        const g = hist.get(`${habit.recurrence}::${normalizeArabic(habit.title)}`);
+        if (!g) continue; // no history → no streak to protect
+        const intervalDays = habit.recurrence === 'DAILY' ? 1 : habit.recurrence === 'WEEKLY' ? 7 : 31;
+        const history = g.history
+          .slice()
+          .sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
+        const { current } = computeStreak(history, intervalDays);
+        if (current < 2) continue;
+        const alive =
+          !history[0]?.completedAt ||
+          now.getTime() - history[0].completedAt.getTime() <= (intervalDays + 1) * 86_400_000;
+        if (!alive) continue;
+        const dueToday = habit.deadline ? dayKeyOf(habit.deadline) === today : false;
+        const doneToday =
+          history[0]?.completedAt ? dayKeyOf(history[0].completedAt) === today : false;
+        if (!dueToday || doneToday) continue;
+        const chainLabel = current === 2 ? 'يومين' : `${current} ${current <= 10 ? 'أيام' : 'يوم'}`;
+        items.push({
+          type: 'HABIT_REMINDER',
+          title: 'سلسلتك في خطر! 🔥',
+          body: `«${habit.title}» لسه ما سجلتهاش النهارده وسلسلتك (${chainLabel}) ممكن تقع — سجّلها قبل ما تنام!`,
+          refKey: `habitrisk-${habit.id}-${today}`,
+        });
+      }
+    }
+
     if (items.length > 0) {
       await this.notifications.createManyDeduped(
         user.id,

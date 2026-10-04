@@ -105,9 +105,9 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
     <div className="space-y-5">
       {/* Greeting hero — soft amber gradient banner */}
       <FadeIn>
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-l from-amber-100/80 via-orange-50/70 to-stone-50 border border-amber-100/80 px-4 sm:px-5 py-4">
-        <div className="absolute -top-10 -end-10 size-32 rounded-full bg-amber-200/40 blur-2xl" aria-hidden />
-        <div className="absolute -bottom-12 start-1/4 size-24 rounded-full bg-orange-200/30 blur-2xl" aria-hidden />
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-l from-amber-100/80 via-orange-50/70 to-stone-50 dark:from-amber-500/15 dark:via-stone-900/40 dark:to-stone-950 border border-amber-100/80 dark:border-amber-500/20 px-4 sm:px-5 py-4">
+        <div className="absolute -top-10 -end-10 size-32 rounded-full bg-amber-200/40 dark:bg-amber-500/10 blur-2xl" aria-hidden />
+        <div className="absolute -bottom-12 start-1/4 size-24 rounded-full bg-orange-200/30 dark:bg-orange-500/10 blur-2xl" aria-hidden />
         <div className="relative flex items-center gap-2">
           {isMorning ? (
             <Sun className="size-6 text-amber-500" aria-hidden />
@@ -141,7 +141,7 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
           </div>
         ) : null}
         <p className="text-xs text-stone-400 mt-2 px-2">
-          جرب: «دفعت 50 جنيه مواصلات» • «عايز أعمل موقع تخرج» • «نظملي يومي»
+          جرب: «دفعت 50 جنيه مواصلات» • «إيه تقرير الشهر؟» • «نظملي يومي»
         </p>
       </FadeIn>
 

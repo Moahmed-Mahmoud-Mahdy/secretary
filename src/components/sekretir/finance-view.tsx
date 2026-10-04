@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowDownCircle,
   ArrowUpCircle,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
   Loader2,
   Pencil,
+  PiggyBank,
   Plus,
   Repeat,
   Target,
@@ -515,6 +517,16 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Month report card (budget vs actual recap) */}
+      {summary && summary.report ? (
+        <MonthReportCard
+          report={summary.report}
+          monthSpent={summary.monthSpent}
+          income={summary.incomeThisMonth}
+          month={monthLabel(month)}
+        />
+      ) : null}
 
       {/* Category breakdown */}
       {summary && summary.byCategory.length > 0 ? (
@@ -1064,4 +1076,172 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       </Dialog>
     </div>
   );
+}
+
+// ============================================================
+// Month report card — budget vs actual recap (BRD §19):
+// projection at current pace, comparison vs last month,
+// top category, net saved. All from real user data.
+// ============================================================
+
+type MonthReport = FinanceSummaryDTO['report'];
+
+const VERDICT_META: Record<
+  MonthReport['verdict'],
+  { label: string; badge: string; dot: string }
+> = {
+  on_track: {
+    label: 'مضبوط ✅',
+    badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    dot: 'bg-emerald-500',
+  },
+  watch: {
+    label: 'خلي بالك ⚠️',
+    badge: 'bg-amber-50 text-amber-700 border-amber-200',
+    dot: 'bg-amber-500',
+  },
+  over: {
+    label: 'عدّيت الميزانية 🚨',
+    badge: 'bg-rose-50 text-rose-700 border-rose-200',
+    dot: 'bg-rose-500',
+  },
+  no_budget: {
+    label: 'من غير ميزانية',
+    badge: 'bg-stone-100 text-stone-600 border-stone-200',
+    dot: 'bg-stone-400',
+  },
+};
+
+function MonthReportCard({
+  report,
+  monthSpent,
+  income,
+  month,
+}: {
+  report: MonthReport;
+  monthSpent: number;
+  income: number;
+  month: string;
+}) {
+  const verdict = VERDICT_META[report.verdict];
+  const delta = report.deltaPct;
+  const top = report.topCategory ? CATEGORY_META[report.topCategory.category] : null;
+
+  return (
+    <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 sekretir-rise">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="font-bold text-stone-800 flex items-center gap-2">
+            <BarChart3 className="size-5 text-sky-600" />
+            تقرير {month}
+          </h2>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold',
+              verdict.badge
+            )}
+          >
+            <span className={cn('size-1.5 rounded-full', verdict.dot)} aria-hidden />
+            {verdict.label}
+          </span>
+        </div>
+
+        {/* Stat tiles */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {/* Projection */}
+          <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2.5 text-center">
+            <p className="text-[10px] text-stone-400 leading-relaxed">
+              {isReportCurrent(report) ? 'متوقع آخر الشهر' : 'إجمالي الشهر'}
+            </p>
+            <p
+              className={cn(
+                'text-sm font-extrabold tabular-nums',
+                report.projectedOverBudget ? 'text-rose-600' : 'text-sky-700'
+              )}
+            >
+              {report.projectedSpent !== null ? `${fmtMoney(report.projectedSpent)} ج` : `${fmtMoney(monthSpent)} ج`}
+            </p>
+            {isReportCurrent(report) ? (
+              <p className="text-[10px] text-stone-400 tabular-nums">
+                يوم {report.daysElapsed} من {report.daysTotal}
+              </p>
+            ) : null}
+          </div>
+
+          {/* Vs last month */}
+          <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2.5 text-center">
+            <p className="text-[10px] text-stone-400">مقارنة باللي فات</p>
+            {delta !== null ? (
+              <>
+                <p
+                  className={cn(
+                    'text-sm font-extrabold tabular-nums',
+                    delta > 0 ? 'text-rose-600' : 'text-emerald-600'
+                  )}
+                >
+                  {delta > 0 ? '▲' : '▼'} {Math.abs(delta)}%
+                </p>
+                <p className="text-[10px] text-stone-400 tabular-nums">
+                  {report.lastMonthSpent !== null ? `${fmtMoney(report.lastMonthSpent)} ج` : '—'}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm font-bold text-stone-400 mt-1.5">—</p>
+            )}
+          </div>
+
+          {/* Top category */}
+          <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2.5 text-center">
+            <p className="text-[10px] text-stone-400">أكتر بند</p>
+            {top && report.topCategory ? (
+              <>
+                <p className="text-sm font-extrabold text-stone-800 truncate">
+                  {top.icon} {top.label}
+                </p>
+                <p className="text-[10px] text-stone-400 tabular-nums">
+                  {fmtMoney(report.topCategory.total)} ج ({report.topCategory.pctOfSpend}%)
+                </p>
+              </>
+            ) : (
+              <p className="text-sm font-bold text-stone-400 mt-1.5">—</p>
+            )}
+          </div>
+
+          {/* Net saved */}
+          <div className="rounded-xl bg-stone-50 border border-stone-100 px-3 py-2.5 text-center">
+            <p className="text-[10px] text-stone-400">{report.net >= 0 ? 'وفرت' : 'صرفت زيادة'}</p>
+            <p
+              className={cn(
+                'text-sm font-extrabold tabular-nums flex items-center justify-center gap-1',
+                report.net >= 0 ? 'text-emerald-600' : 'text-rose-600'
+              )}
+            >
+              <PiggyBank className="size-3.5 shrink-0" aria-hidden />
+              {fmtMoney(Math.abs(report.net))} ج
+            </p>
+            <p className="text-[10px] text-stone-400 tabular-nums">
+              من دخل {fmtMoney(income)} ج
+            </p>
+          </div>
+        </div>
+
+        {/* Verdict line */}
+        <p className="text-xs text-stone-500 mt-3 leading-relaxed">
+          {report.verdict === 'over' ? (
+            <>صرفت أكتر من ميزانية الشهر — لو حابب نراجع البنود الأتقل، قولي «إيه أكتر بند صرفت فيه؟» 👀</>
+          ) : report.verdict === 'watch' && report.projectedSpent !== null ? (
+            <>على الوضع ده هتخلص ميزانية الشهر قبل آخره — قلل شوية في البنود الكبيرة أو زوّد الميزانية ⚠️</>
+          ) : report.verdict === 'on_track' ? (
+            <>صرفك مضبوط على ميزانية الشهر، كمّل كده 👏 {report.savingRatePct !== null && report.savingRatePct > 0 ? `وفّرت ${report.savingRatePct}% من دخلك.` : ''}</>
+          ) : (
+            <>لسه محددتش ميزانية للشهر — حددها وأنا هقولك كل يوم انت مالك إيه 💰</>
+          )}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function isReportCurrent(report: MonthReport): boolean {
+  return report.projectedSpent !== null;
 }

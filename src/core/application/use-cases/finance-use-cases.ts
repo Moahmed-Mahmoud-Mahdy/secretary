@@ -35,6 +35,22 @@ export interface FinanceSummaryDTO {
   }[];
   expectedRecurringRestOfMonth: number;
   dailyAverage: number;
+  /** Month recap card (BRD §19 — budget vs actual report). */
+  report: {
+    daysElapsed: number;
+    daysTotal: number;
+    /** Projected end-of-month spend at current pace (current month only). */
+    projectedSpent: number | null;
+    projectedOverBudget: boolean | null;
+    /** Previous calendar month total spend for comparison. */
+    lastMonthSpent: number | null;
+    /** Spend change vs last month, percent (-100..∞, null when no baseline). */
+    deltaPct: number | null;
+    topCategory: { category: ExpenseCategory; total: number; pctOfSpend: number } | null;
+    net: number;
+    savingRatePct: number | null;
+    verdict: 'on_track' | 'watch' | 'over' | 'no_budget';
+  };
   expenses: ExpenseDTO[];
   incomes: IncomeDTO[];
   upcomingRecurring: { id: string; amount: number; category: ExpenseCategory; description: string | null; recurrence: Recurrence | null; nextDueAt: string | null }[];
@@ -266,12 +282,17 @@ export class FinanceUseCases {
     const monthStart = range.from ?? startOfMonth(now);
     const monthEnd = range.to ?? endOfMonth(now);
 
-    const [expenses, incomes, budget, user, categoryBudgets] = await Promise.all([
+    // Previous calendar month range (for the report's comparison baseline).
+    const prevStart = new Date(Date.UTC(monthEnd.getUTCFullYear(), monthEnd.getUTCMonth() - 1, 1));
+    const prevEnd = endOfMonth(prevStart);
+
+    const [expenses, incomes, budget, user, categoryBudgets, prevExpenses] = await Promise.all([
       this.finance.listExpenses(userId, { from: monthStart, to: monthEnd }),
       this.finance.listIncomes(userId, { from: monthStart, to: monthEnd }),
       this.finance.getBudgetAmount(userId, monthEnd.getUTCMonth() + 1, monthEnd.getUTCFullYear()),
       this.users.findById(userId),
       this.finance.listCategoryBudgets(userId, monthEnd.getUTCMonth() + 1, monthEnd.getUTCFullYear()),
+      this.finance.listExpenses(userId, { from: prevStart, to: prevEnd }),
     ]);
 
     const monthSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -338,6 +359,26 @@ export class FinanceUseCases {
         nextDueAt: e.nextDueAt ? e.nextDueAt.toISOString() : null,
       }));
 
+    // ---- Month recap report (BRD §19) ------------------------------------
+    const lastMonthSpent = prevExpenses.reduce((sum, e) => sum + e.amount, 0);
+    const deltaPct =
+      lastMonthSpent > 0
+        ? Math.round(((monthSpent - lastMonthSpent) / lastMonthSpent) * 100)
+        : null;
+    const topCat = byCategory[0] ?? null;
+    const net = incomeThisMonth - monthSpent;
+    const projectedSpent = isCurrentMonth ? Math.round(dailyAverage * daysInMonth) : null;
+    const projectedOverBudget =
+      projectedSpent !== null && budgetAmount !== null ? projectedSpent > budgetAmount : null;
+    const verdict: FinanceSummaryDTO['report']['verdict'] =
+      budgetAmount === null
+        ? 'no_budget'
+        : monthSpent > budgetAmount
+          ? 'over'
+          : projectedOverBudget
+            ? 'watch'
+            : 'on_track';
+
     return {
       month: `${monthEnd.getUTCFullYear()}-${String(monthEnd.getUTCMonth() + 1).padStart(2, '0')}`,
       budget: budgetAmount,
@@ -349,6 +390,24 @@ export class FinanceUseCases {
       categoryLimits,
       expectedRecurringRestOfMonth,
       dailyAverage,
+      report: {
+        daysElapsed: isCurrentMonth ? now.getUTCDate() : daysInMonth,
+        daysTotal: daysInMonth,
+        projectedSpent,
+        projectedOverBudget,
+        lastMonthSpent: lastMonthSpent > 0 ? lastMonthSpent : null,
+        deltaPct,
+        topCategory: topCat
+          ? {
+              category: topCat.category,
+              total: topCat.total,
+              pctOfSpend: monthSpent > 0 ? Math.round((topCat.total / monthSpent) * 100) : 0,
+            }
+          : null,
+        net,
+        savingRatePct: incomeThisMonth > 0 ? Math.round((net / incomeThisMonth) * 100) : null,
+        verdict,
+      },
       expenses: expenses.map(serializeExpense).sort((a, b) => b.date.localeCompare(a.date)),
       incomes: incomes.map(serializeIncome).sort((a, b) => b.date.localeCompare(a.date)),
       upcomingRecurring,

@@ -303,3 +303,35 @@ Task: Status assessment + browser QA + new features (habit streaks, recurring-du
 - agent-browser ref staleness during SPA re-renders made tab clicks flaky in QA (retry with fresh snapshot works) — not an app bug.
 - Next round suggestions: dark mode; explicit transfers between categories (BRD §19); PWA offline shell; per-category month report card; habit "streak at risk" evening notification; AI natural-language reschedule ("أجل مهمة X لبكرة") already partly covered by UPDATE_TASK — expand tests; TTS voice comparison (xiaochen/kazi vs tongtong) for Arabic.
 - QA artifacts this round: download/qa-home-live-timer.png, download/qa-habits-streaks.png, download/qa-home-final.png, download/qa-week-regression.png.
+---
+Task ID: cron-20261004-6
+Agent: main (Z.ai Code) — webDevReview round 6
+Task: Status assessment + browser QA + dark mode + month report card + AI MONTH_REPORT/PRODUCTIVITY queries + habit streak-at-risk alert
+
+## Current project status
+- STABLE. Full browser QA passed before feature work: all 6 views render (light), AI QUERY regression OK (real data, masculine tone), lint + tsc clean (app code), no runtime errors in dev.log. The only QA "finding" (task form time picker showing English "Hours/AM-PM" spinbuttons) is the native Chromium <input type="time"> a11y tree — not an app bug.
+- This round's data-scare was investigated and RESOLVED: home briefly showed zeros because a transient CSS parse error (see below) broke the page mid-fetch; DB verified intact (14 tasks / 3 events / 13 expenses / 2 incomes / budget 8000). Reload fixed it.
+
+## This round: completed modifications & verification
+1. **Dark mode (BRD §43 polish) — full warm-stone theme with amber accent**:
+   - next-themes (class attribute, system-aware) + inline no-flash script in layout head; body on semantic tokens; ThemeToggle (☀️/🌙) in the header next to the bell.
+   - `.dark` semantic tokens warmed (stone-950 bg / stone-900 cards / amber-600 primary) so shadcn Dialogs/Selects/Popovers/toasts follow; `color-scheme: dark` for native inputs.
+   - Unlayered CSS utility overrides in globals.css remap the concrete stone/amber/rose/emerald palette used across sekretir components (bg-white→#1c1917, text-stone-* inverted, borders → white/6-9%, amber/rose/emerald tints → color-mix-on-dark equivalents, hover variants included). Dark ::selection + dark scrollbars.
+   - Hero gradient gets explicit dark: classes (amber glow over stone-950); `bg-white/60` send-overlay darkened.
+   - Verified via screenshots: home/tasks/calendar/finance/assistant in dark + light regression (download/dark-*.png, final-light-home5.png, final-dark-home.png). Theme persists in localStorage.
+2. **Month report card (تقرير الشهر، BRD §19)** — new `report` block in FinanceSummaryDTO:
+   - projectedSpent (current month pace × days-in-month) + projectedOverBudget, deltaPct vs last month (extra prev-month expenses query), topCategory with % of spend, net saved (income−spend) + savingRatePct, verdict: on_track | watch | over | no_budget.
+   - UI: MonthReportCard between budget card and category breakdown — verdict badge (مضبوط ✅ / خلي بالك ⚠️ / عدّيت 🚨), 4 stat tiles, contextual Egyptian verdict line ("وفّرت 83% من دخلك 👏"). Works for browsed months (past months show totals instead of projection). Verified live: 5,890 projected / ▼44% vs 1,355 / فواتير 66% / وفرت 3,740.
+3. **AI MONTH_REPORT + PRODUCTIVITY query types** — full prompt + fetchQueryData support:
+   - MONTH_REPORT: "إيه تقرير الشهر؟" / "صرفي مقارنة باللي فات" → verified live ("صرفت 760 من 8000... أقل من الشهر اللي فات (1355) فرق 44% 🎉").
+   - PRODUCTIVITY: "إيه أحسن وقت بتنجز فيه؟" → peak completion hours (from 30d completedAt histogram), completions 7/14d, avg/day, estimate-vs-actual drift. Verified via curl: "خلصت من 9 مهام في اسبوعين... أوقات 5 و10 مساءً 🕔". Report also included in FINANCE_SUMMARY/BUDGET_STATUS payloads. Home example chip updated to «إيه تقرير الشهر؟».
+4. **Habit streak-at-risk evening notification (BRD §16/§28)** — new HABIT_REMINDER type + 🔥 bell icon:
+   - At Cairo hour ≥ 20:00, for each open recurring habit with an ALIVE streak ≥ 2 that is due today and not yet checked in → "سلسلتك في خطر! 🔥 «...» لسه ما سجلتهاش وسلسلتك (يومين) ممكن تقع". Deduped per habit/day (refKey habitrisk-{id}-{day}); Arabic dual/plural grammar handled (يومين/أيام/يوم).
+   - E2E verified with a synthetic habit (streak 2, due today, unchecked) and a temporarily lowered threshold → notification fired with correct title/body; threshold restored to 20:00 and test data cleaned (3 tasks + 1 notification removed, verified).
+
+## Unresolved issues / risks & next priorities
+- Dark coverage is override-based: any NEW hardcoded light utility in sekretir components (e.g. a new bg-emerald-700 or border-teal-*) may need a matching .dark override — audit visually when adding features. (Semantic-token usage is already covered.)
+- PRODUCTIVITY routing is LLM-nondeterministic — occasionally falls back to GENERAL (which answers reasonably from schedule data). Rule 18 could be strengthened further if drift is observed.
+- Streak-at-risk only fires for habits due TODAY; a WEEKLY habit due mid-week never gets the evening nudge (by design).
+- Next round suggestions: category-to-category transfers (BRD §19); PWA offline shell (service worker + manifest theme dark variant); per-category month report drill-down; TTS voice comparison (xiaochen/kazi vs tongtong) for Arabic; AI natural-language reschedule ("أجل مهمة X لبكرة") as dedicated POSTPONE action; budget copy auto-suggestion insight when new month starts.
+- QA artifacts: download/dark-home.png, dark-tasks.png, dark-finance2/3.png, dark-calendar.png, dark-assistant.png, light-finance.png, final-light-home5.png, final-dark-home.png.

@@ -20,6 +20,7 @@ const NOTIF_ICON: Record<string, string> = {
   WEEKLY_SUMMARY: '📊',
   AI_SUGGESTION: '🤖',
   REPLAN: '🔄',
+  HABIT_REMINDER: '🔥',
 };
 
 interface NotificationsBellProps {

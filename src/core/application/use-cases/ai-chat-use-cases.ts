@@ -470,6 +470,7 @@ export class AiChatUseCases {
           dailyAverage: Math.round(s.dailyAverage),
           byCategory: s.byCategory.slice(0, 5),
           categoryLimits: s.categoryLimits,
+          report: s.report,
         };
       }
       case 'BUDGET_STATUS': {
@@ -481,6 +482,76 @@ export class AiChatUseCases {
           expectedRecurringRestOfMonth: s.expectedRecurringRestOfMonth,
           dailyAverage: Math.round(s.dailyAverage),
           categoryLimits: s.categoryLimits,
+          report: s.report,
+        };
+      }
+      case 'MONTH_REPORT': {
+        const s = await this.financeUseCases.summary(userId);
+        const prev = s.report.lastMonthSpent;
+        return {
+          month: s.month,
+          budget: s.budget,
+          monthSpent: s.monthSpent,
+          remaining: s.remaining,
+          incomeThisMonth: s.incomeThisMonth,
+          dailyAverage: Math.round(s.dailyAverage),
+          report: s.report,
+          byCategory: s.byCategory.slice(0, 5),
+          lastMonthSpent: prev,
+        };
+      }
+      case 'PRODUCTIVITY': {
+        const all = await this.tasks.listAll(userId);
+        const completed = all.filter(
+          (t) => t.completedAt && now.getTime() - t.completedAt.getTime() <= 30 * 86_400_000
+        );
+        const byHour = new Array<number>(24).fill(0);
+        for (const t of completed) byHour[t.completedAt!.getUTCHours()] += 1;
+        const maxHour = Math.max(...byHour);
+        const peakHours =
+          maxHour > 0
+            ? byHour
+                .map((c, h) => ({ c, h }))
+                .filter((x) => x.c >= Math.max(1, Math.round(maxHour * 0.6)))
+                .map((x) => x.h)
+            : [];
+        const last7 = completed.filter(
+          (t) => now.getTime() - t.completedAt!.getTime() <= 7 * 86_400_000
+        ).length;
+        const last14 = completed.filter(
+          (t) => now.getTime() - t.completedAt!.getTime() <= 14 * 86_400_000
+        ).length;
+        const samples = completed.filter(
+          (t) => (t.estimatedMinutes ?? 0) > 0 && t.actualMinutes > 0
+        );
+        const avgEst = samples.length
+          ? Math.round(samples.reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0) / samples.length)
+          : null;
+        const avgAct = samples.length
+          ? Math.round(samples.reduce((s, t) => s + t.actualMinutes, 0) / samples.length)
+          : null;
+        const driftPct =
+          avgEst && avgEst > 0 && avgAct !== null
+            ? Math.round(((avgAct - avgEst) / avgEst) * 100)
+            : null;
+        return {
+          completionsLast7Days: last7,
+          completionsLast14Days: last14,
+          avgCompletionsPerDay: Math.round((last14 / 14) * 10) / 10,
+          peakCompletionHours: peakHours,
+          durationSamplesCount: samples.length,
+          avgEstimatedMinutes: avgEst,
+          avgActualMinutes: avgAct,
+          driftPct,
+          chronicOverdueTitles: all
+            .filter(
+              (t) =>
+                (t.status === 'TODO' || t.status === 'IN_PROGRESS') &&
+                t.deadline &&
+                now.getTime() - t.deadline.getTime() > 2 * 86_400_000
+            )
+            .slice(0, 5)
+            .map((t) => t.title),
         };
       }
       case 'TODAY_SCHEDULE': {

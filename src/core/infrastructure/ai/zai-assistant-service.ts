@@ -92,7 +92,7 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 {"type":"CREATE_PROJECT_WITH_TASKS","name":"اسم المشروع","description":null,"deadline":null|"YYYY-MM-DD","tasks":[{"title":"خطوة مختصرة","priority":"LOW"|"MEDIUM"|"HIGH"|"URGENT","estimatedMinutes":عدد|null}]}
 {"type":"ADD_SUBTASKS","taskName":"اسم المهمة الموجودة","subtasks":["خطوة 1","خطوة 2","خطوة 3"]}
 {"type":"PLAN_DAY","date":null|"YYYY-MM-DD"}
-{"type":"QUERY","queryType":"FINANCE_SUMMARY"|"BUDGET_STATUS"|"TODAY_SCHEDULE"|"TASKS_STATUS"|"HABITS"|"GENERAL","question":"سؤال المستخدم زي ما قاله"}
+{"type":"QUERY","queryType":"FINANCE_SUMMARY"|"BUDGET_STATUS"|"TODAY_SCHEDULE"|"TASKS_STATUS"|"HABITS"|"MONTH_REPORT"|"PRODUCTIVITY"|"GENERAL","question":"سؤال المستخدم زي ما قاله"}
 {"type":"CHITCHAT","message":"..."}
 
 قواعد مهمة جدًا:
@@ -100,7 +100,7 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 2. كل الأوقات بتوقيت القاهرة. لو المهمة من غير ساعة محددة خلي deadline الساعة 23:59:59. لو ذكر مدة (مثلاً "ساعتين") حسبها بالدقايق في estimatedMinutes (120).
 3. الفلوس بالجنيه المصري. استخرج الأرقام حتى لو بالحروف: مية=100، ميتين=200، نص=50، ربع=25، ألف=1000. "جنيه" و"ج" و"EGP" كلها نفس المعنى.
 4. لو الرسالة فيها أكتر من طلب، رتّبهم في actions بنفس ترتيب المستخدم وخلي intent=MULTI_ACTION. مثال: "دفعت 100 جنيه مواصلات وبكرة عندي محاضرة الساعة 10" = CREATE_EXPENSE + CREATE_EVENT.
-5. لو المستخدم بيسأل (مثال: "إيه مصاريفي؟"، "عندي إيه النهارده؟"، "قد إيه صرفت الشهر ده؟"، "إيه المهام اللي معايا؟"، "إيه عاداتي المتكررة؟"، "عاداتي وسلسلتي وصلت كام؟") → intent=QUERY ولازم actions يكون فيه عنصر واحد {"type":"QUERY","queryType":"...","question":"السؤال زي ما كتبه"}. لو السؤال عن عادات أو التزامات متكررة أو فواتير بتتكرر استخدم queryType=HABITS. ممنوع تسيب actions فاضية مع QUERY.
+5. لو المستخدم بيسأل (مثال: "إيه مصاريفي؟"، "عندي إيه النهارده؟"، "قد إيه صرفت الشهر ده؟"، "إيه المهام اللي معايا؟"، "إيه عاداتي المتكررة؟"، "عاداتي وسلسلتي وصلت كام؟") → intent=QUERY ولازم actions يكون فيه عنصر واحد {"type":"QUERY","queryType":"...","question":"السؤال زي ما كتبه"}. لو السؤال عن عادات أو التزامات متكررة أو فواتير بتتكرر استخدم queryType=HABITS. لو السؤال عن تقرير/مقارنة الشهر (تقرير الشهر، صرفي مقارنة بالشهر اللي فات، الشهر ده كام) استخدم queryType=MONTH_REPORT. لو السؤال عن إنتاجيته أو أحسن وقت بيتنجز فيه استخدم queryType=PRODUCTIVITY. ممنوع تسيب actions فاضية مع QUERY.
 6. لو الرسالة مجرد سلام أو كلام عام من غير طلب → CHITCHAT.
 7. ممنوع تخترع بيانات مش موجودة في الرسالة. لو مش فاهم الطلب → intent=UNKNOWN و actions=[]. لو الرسالة فيها أكتر من intent مختلف خلي intent=MULTI_ACTION.
 8. مشاريع المستخدم الحالية: ${context.projects.length > 0 ? context.projects.join('، ') : 'مفيش'}. لو ذكر اسم مشروع موجود اكتبه في projectName زي ما هو، لو ذكر اسم مش موجود خلي projectName بالنص اللي قاله وهيتعمل تلقائي.
@@ -113,7 +113,8 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 15. لو المستخدم عايز يصحّح أو يعدّل مصروف اتسجل قبل كده (مثال: "المصروف اللي سجلته مواصلات كان 60 مش 50"، "انقل مصروف الفطار لفئة الأكل"، "التصنيف بتاع X غلط خليه Y") → action واحد UPDATE_EXPENSE باسم المصروف (expenseName) والمبلغ الجديد و/أو الفئة الجديدة. ممنوع تستخدم UPDATE_EXPENSE لمصروف جديد — ده لبيعدي.
 16. لو المستخدم عايز يصحّح دخل اتسجل قبل كده (مثال: "الراتب اللي سجلته كان 9000 مش 8000"، "دخل الفريلانس كان 3000 مش 2500") → action واحد UPDATE_INCOME باسم مصدر الدخل (incomeName) والمبلغ الجديد. ممنوع تستخدمه لدخل جديد.
 17. لو المستخدم بيسأل عن عاداته أو التزاماته المتكررة أو سلسلة التزامه (مثال: "إيه عاداتي المتكررة؟"، "عندي إيه عادات؟"، "الفاتورات اللي بتتكرر إيه حكاها؟") → intent=QUERY و queryType=HABITS.
-18. ممنوع تطلع أي حاجة غير الـ JSON.`;
+18. "إيه أحسن وقت بتنجز فيه؟"، "إنتاجيتي عاملة إيه؟"، "بتخلص قد إيه مهام في اليوم؟" → QUERY بـ queryType=PRODUCTIVITY. و"تقرير الشهر"، "صرفي الشهر ده مقارنة باللي فات"، "هخلص من ميزانيتي كام؟" → QUERY بـ queryType=MONTH_REPORT.
+19. ممنوع تطلع أي حاجة غير الـ JSON.`;
 }
 
 export class ZaiAssistantService implements IAiAssistantService {

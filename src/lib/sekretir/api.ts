@@ -248,6 +248,18 @@ export interface FinanceSummaryDTO {
   }[];
   expectedRecurringRestOfMonth: number;
   dailyAverage: number;
+  report: {
+    daysElapsed: number;
+    daysTotal: number;
+    projectedSpent: number | null;
+    projectedOverBudget: boolean | null;
+    lastMonthSpent: number | null;
+    deltaPct: number | null;
+    topCategory: { category: ExpenseCategory; total: number; pctOfSpend: number } | null;
+    net: number;
+    savingRatePct: number | null;
+    verdict: 'on_track' | 'watch' | 'over' | 'no_budget';
+  };
   expenses: ExpenseDTO[];
   incomes: IncomeDTO[];
   upcomingRecurring: {

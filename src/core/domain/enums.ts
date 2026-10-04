@@ -45,6 +45,7 @@ export const NOTIFICATION_TYPES = [
   'WEEKLY_SUMMARY',
   'AI_SUGGESTION',
   'REPLAN',
+  'HABIT_REMINDER',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
