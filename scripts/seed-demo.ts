@@ -226,6 +226,18 @@ async function main() {
     data: { userId: user.id, month: cairoMonth, year: new Date().getFullYear(), amount: 8000 },
   });
 
+  // ---------- per-category limits (showcase) ----------
+  const catLimits: [string, number][] = [
+    ['FOOD', 1200],
+    ['TRANSPORT', 400],
+    ['BILLS', 600],
+  ];
+  for (const [category, amount] of catLimits) {
+    await db.categoryBudget.create({
+      data: { userId: user.id, month: cairoMonth, year: new Date().getFullYear(), category, amount },
+    });
+  }
+
   // ---------- plan slots (today) ----------
   await db.planSlot.create({
     data: {

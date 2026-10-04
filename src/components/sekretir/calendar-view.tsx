@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarPlus, ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
+import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -33,6 +33,7 @@ import {
   type OccurrenceDTO,
   type PlanSlotDTO,
   type Recurrence,
+  type WeekPlanDTO,
 } from '@/lib/sekretir/api';
 import { RECURRENCE_OPTIONS } from '@/lib/sekretir/constants';
 import {
@@ -98,6 +99,13 @@ function slotToOccurrence(slot: PlanSlotDTO): OccurrenceDTO {
   };
 }
 
+/** Sunday-anchored week start for a wall-clock day key (Egyptian week). */
+function weekStartKey(key: string): string {
+  const ms = Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)));
+  const offset = new Date(ms).getUTCDay(); // 0=Sunday
+  return addDaysKey(key, -offset);
+}
+
 interface CalendarViewProps {
   refreshKey: number;
   onAuthError: () => void;
@@ -105,8 +113,10 @@ interface CalendarViewProps {
 
 export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
   const [selectedKey, setSelectedKey] = useState(todayKey());
+  const [mode, setMode] = useState<'day' | 'week'>('day');
   const [events, setEvents] = useState<EventDTO[]>([]);
   const [plan, setPlan] = useState<DayPlanDTO | null>(null);
+  const [weekPlan, setWeekPlan] = useState<WeekPlanDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [slotBusy, setSlotBusy] = useState<string | null>(null);
 
@@ -146,15 +156,31 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
     void load();
   }, [load, refreshKey]);
 
+  // Week grid data (slots per day) — only needed in week mode.
+  const weekDaysKey = weekStartKey(selectedKey);
+  useEffect(() => {
+    if (mode !== 'week') return;
+    let cancelled = false;
+    endpoints
+      .weekPlan(weekDaysKey)
+      .then((data) => {
+        if (!cancelled) setWeekPlan(data);
+      })
+      .catch((e) => {
+        if (isAuthError(e)) {
+          onAuthError();
+          return;
+        }
+        toast.error(apiErrorMessage(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, weekDaysKey, refreshKey, onAuthError, selectedKey]);
+
   // Week strip: 7 days starting from week anchor
   const today = todayKey();
-  const dayMs = Date.UTC(
-    Number(selectedKey.slice(0, 4)),
-    Number(selectedKey.slice(5, 7)) - 1,
-    Number(selectedKey.slice(8, 10))
-  );
-  const weekdayOffset = new Date(dayMs).getUTCDay(); // 0=Sunday → weeks start Sunday
-  const weekStart = addDaysKey(selectedKey, -weekdayOffset);
+  const weekStart = weekStartKey(selectedKey);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDaysKey(weekStart, i));
 
   const agenda: OccurrenceDTO[] = [
@@ -249,18 +275,49 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-extrabold text-stone-900">التقويم</h1>
-        <Button
-          className="bg-amber-600 hover:bg-amber-700 text-white rounded-full"
-          onClick={() => {
-            setAddForm({ title: '', date: selectedKey, startTime: '', endTime: '', recurrence: 'none' });
-            setAddOpen(true);
-          }}
-        >
-          <CalendarPlus className="size-4" />
-          ضيف موعد ثابت
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Day/Week mode toggle */}
+          <div className="flex items-center rounded-full border border-stone-200 bg-white p-0.5" role="tablist" aria-label="عرض التقويم">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'day'}
+              onClick={() => setMode('day')}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+                mode === 'day' ? 'bg-amber-600 text-white shadow-sm' : 'text-stone-500 hover:bg-stone-100'
+              )}
+            >
+              <CalendarPlus className="size-3.5" />
+              يوم
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'week'}
+              onClick={() => setMode('week')}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition-colors',
+                mode === 'week' ? 'bg-amber-600 text-white shadow-sm' : 'text-stone-500 hover:bg-stone-100'
+              )}
+            >
+              <CalendarDays className="size-3.5" />
+              أسبوع
+            </button>
+          </div>
+          <Button
+            className="bg-amber-600 hover:bg-amber-700 text-white rounded-full"
+            onClick={() => {
+              setAddForm({ title: '', date: selectedKey, startTime: '', endTime: '', recurrence: 'none' });
+              setAddOpen(true);
+            }}
+          >
+            <CalendarPlus className="size-4" />
+            ضيف موعد
+          </Button>
+        </div>
       </div>
 
       {/* Week strip */}
@@ -315,7 +372,106 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
         </CardContent>
       </Card>
 
-      {/* Agenda */}
+      {/* Week grid view */}
+      {mode === 'week' ? (
+        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+          <CardContent className="p-3 sm:p-4">
+            <div className="overflow-x-auto -mx-1 px-1 pb-1" style={{ scrollbarWidth: 'thin' }}>
+              <div className="grid grid-cols-7 gap-1.5 min-w-[640px]">
+                {weekDays.map((k) => {
+                  const isToday = k === today;
+                  const isSelected = k === selectedKey;
+                  const daySlots = weekPlan?.days.find((d) => d.date === k)?.slots ?? [];
+                  const dayPlannedMin = weekPlan?.days.find((d) => d.date === k)?.plannedMinutes ?? 0;
+                  const dayOccurrences: OccurrenceDTO[] = [
+                    ...events.filter((ev) => eventOccursOn(ev, k)).map((ev) => eventToOccurrence(ev, k)),
+                    ...daySlots.map(slotToOccurrence),
+                  ].sort((a, b) => a.startAt.localeCompare(b.startAt));
+                  return (
+                    <div
+                      key={k}
+                      className={cn(
+                        'rounded-xl border flex flex-col min-h-[180px]',
+                        isToday ? 'border-amber-300 bg-amber-50/40' : 'border-stone-100 bg-stone-50/40'
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedKey(k);
+                          setMode('day');
+                        }}
+                        className={cn(
+                          'flex items-center justify-center gap-1.5 rounded-t-xl py-2 text-xs font-bold transition-colors',
+                          isSelected
+                            ? 'bg-amber-600 text-white'
+                            : isToday
+                              ? 'text-amber-700 hover:bg-amber-100'
+                              : 'text-stone-500 hover:bg-stone-100'
+                        )}
+                        aria-label={`افتح يوم ${weekdayName(k)}`}
+                      >
+                        <span>{weekdayInitial(k)}</span>
+                        <span className="tabular-nums">{keyDayNumber(k)}</span>
+                      </button>
+                      <div className="flex-1 p-1 space-y-1">
+                        {dayOccurrences.length === 0 ? (
+                          <p className="text-center text-[10px] text-stone-300 pt-4">فاضي</p>
+                        ) : (
+                          dayOccurrences.slice(0, 5).map((occ) => {
+                            const isEvent = occ.kind === 'EVENT';
+                            const done = occ.status === 'DONE';
+                            const missed = occ.status === 'MISSED';
+                            return (
+                              <div
+                                key={occ.key}
+                                title={`${fmtTime(occ.startAt)} ${occ.title}`}
+                                className={cn(
+                                  'rounded-lg px-1.5 py-1 text-[10px] leading-tight border transition-colors',
+                                  isEvent
+                                    ? 'bg-amber-100/80 border-amber-200 text-amber-900'
+                                    : done
+                                      ? 'bg-stone-100 border-stone-200 text-stone-400 line-through'
+                                      : missed
+                                        ? 'bg-stone-100 border-stone-200 text-stone-400 opacity-70'
+                                        : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                                )}
+                              >
+                                <span className="font-bold tabular-nums block">{fmtTime(occ.startAt)}</span>
+                                <span className="block truncate">{occ.title}</span>
+                              </div>
+                            );
+                          })
+                        )}
+                        {dayOccurrences.length > 5 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedKey(k);
+                              setMode('day');
+                            }}
+                            className="text-[10px] font-bold text-amber-600 hover:text-amber-700 w-full text-center pt-0.5"
+                          >
+                            +{dayOccurrences.length - 5} كمان
+                          </button>
+                        ) : null}
+                      </div>
+                      {dayPlannedMin > 0 ? (
+                        <p className="text-center text-[9px] text-stone-400 pb-1.5 tabular-nums">
+                          ⏳ {Math.round(dayPlannedMin / 60)} سا
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="text-[11px] text-stone-400 mt-2 text-center">
+              دوس على أي يوم لتفتح تفاصيله — 🟡 مواعيد ثابتة • 🟢 مهام مخططة
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
       <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
         <CardContent className="p-4 sm:p-5">
           <h2 className="font-bold text-stone-800 mb-1">
@@ -437,6 +593,7 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
           ) : null}
         </CardContent>
       </Card>
+      )}
 
       {/* Edit event dialog */}
       <Dialog open={editEvent !== null} onOpenChange={(o) => !o && setEditEvent(null)}>

@@ -9,7 +9,7 @@ import {
   parseWallIso,
   startOfDay,
 } from '../../domain/services/time';
-import type { DayPlanDTO, PlanSlotDTO, TaskRecord } from '../../domain/types';
+import type { DayPlanDTO, PlanSlotDTO, TaskRecord, WeekPlanDTO } from '../../domain/types';
 import type { IEventRepository, IPlanRepository, ITaskRepository } from '../../domain/repositories';
 import { eventOccurrenceOnDay } from '../../domain/services/recurrence';
 
@@ -69,6 +69,40 @@ export class PlanningUseCases {
       plannedMinutes,
       freeMinutes,
     };
+  }
+
+  /** 7-day overview for the weekly planner grid (BRD §16). */
+  async getWeekPlan(userId: string, startKeyStr?: string, days = 7): Promise<WeekPlanDTO> {
+    const start = startOfDay(startKeyStr ? parseWallIso(startKeyStr) : nowWall());
+    const cappedDays = Math.max(1, Math.min(14, days));
+    const end = endOfDay(new Date(start.getTime() + (cappedDays - 1) * 86_400_000));
+    const [slots, tasks] = await Promise.all([
+      this.plans.listSlotsForDay(userId, start, end),
+      this.tasks.listAll(userId),
+    ]);
+    const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+    const dayBuckets = new Map<string, PlanSlotDTO[]>();
+    for (let i = 0; i < cappedDays; i += 1) {
+      dayBuckets.set(dayKeyOf(new Date(start.getTime() + i * 86_400_000)), []);
+    }
+    for (const s of slots) {
+      const key = dayKeyOf(s.startAt);
+      const bucket = dayBuckets.get(key);
+      if (!bucket) continue;
+      const task = taskMap.get(s.taskId);
+      bucket.push(serializePlanSlot(s, task?.title ?? 'مهمة', task?.priority ?? 'MEDIUM'));
+    }
+
+    const outDays: WeekPlanDTO['days'] = [...dayBuckets.entries()].map(([date, daySlots]) => {
+      daySlots.sort((a, b) => a.startAt.localeCompare(b.startAt));
+      const plannedMinutes = daySlots
+        .filter((s) => s.status !== 'MISSED')
+        .reduce((sum, s) => sum + Math.max(0, Math.round((new Date(s.endAt).getTime() - new Date(s.startAt).getTime()) / 60000)), 0);
+      return { date, slots: daySlots, plannedMinutes };
+    });
+
+    return { start: dayKeyOf(start), days: outDays };
   }
 
   /** (Re)generate the plan for a day — misses are re-planned, done slots are kept. */

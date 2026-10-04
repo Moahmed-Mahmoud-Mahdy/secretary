@@ -234,6 +234,19 @@ export class AiChatUseCases {
         executed.push({ type: 'BUDGET', action: 'CREATED', summary: `ظبطت ميزانية الشهر على ${formatAmount(amount)} جنيه` });
         return;
       }
+      case 'SET_CATEGORY_BUDGET': {
+        const amount = num(action.amount);
+        const category = str(action.category) ?? 'OTHER';
+        if (!amount) throw new Error('category budget without amount');
+        await this.financeUseCases.setCategoryBudget(userId, category, amount);
+        const label = CATEGORY_LABELS_AR[category.toUpperCase() as keyof typeof CATEGORY_LABELS_AR] ?? category;
+        executed.push({
+          type: 'BUDGET',
+          action: 'CREATED',
+          summary: `ظبطت حد صرف ${label} على ${formatAmount(amount)} جنيه في الشهر`,
+        });
+        return;
+      }
       case 'CREATE_PROJECT': {
         const name = str(action.name) ?? str(action.title);
         if (!name) throw new Error('project without name');
@@ -406,6 +419,7 @@ export class AiChatUseCases {
           incomeThisMonth: s.incomeThisMonth,
           dailyAverage: Math.round(s.dailyAverage),
           byCategory: s.byCategory.slice(0, 5),
+          categoryLimits: s.categoryLimits,
         };
       }
       case 'BUDGET_STATUS': {
@@ -416,6 +430,7 @@ export class AiChatUseCases {
           remaining: s.remaining,
           expectedRecurringRestOfMonth: s.expectedRecurringRestOfMonth,
           dailyAverage: Math.round(s.dailyAverage),
+          categoryLimits: s.categoryLimits,
         };
       }
       case 'TODAY_SCHEDULE': {

@@ -133,6 +133,11 @@ export interface DayPlanDTO {
   freeMinutes: number;
 }
 
+export interface WeekPlanDTO {
+  start: string;
+  days: { date: string; slots: PlanSlotDTO[]; plannedMinutes: number }[];
+}
+
 export interface NotificationDTO {
   id: string;
   type: NotificationType;
@@ -215,6 +220,13 @@ export interface FinanceSummaryDTO {
   spentToday: number;
   incomeThisMonth: number;
   byCategory: { category: ExpenseCategory; total: number }[];
+  categoryLimits: {
+    category: ExpenseCategory;
+    limit: number;
+    spent: number;
+    pct: number;
+    over: boolean;
+  }[];
   expectedRecurringRestOfMonth: number;
   dailyAverage: number;
   expenses: ExpenseDTO[];
@@ -333,6 +345,12 @@ export const endpoints = {
   financeSummary: (month?: string) =>
     api.get<FinanceSummaryDTO>(`/api/budget${month ? `?month=${month}` : ''}`),
   setBudget: (amount: number) => api.post<{ budget: number }>('/api/budget', { amount }),
+  setCategoryLimit: (category: string, amount: number, month?: string) =>
+    api.post<{ category: string; limit: number | null }>('/api/budget/limits', {
+      category,
+      amount,
+      ...(month ? { month } : {}),
+    }),
 
   expenses: (month?: string) =>
     api.get<{ expenses: ExpenseDTO[] }>(`/api/expenses${month ? `?month=${month}` : ''}`),
@@ -347,6 +365,8 @@ export const endpoints = {
   deleteIncome: (id: string) => api.del<{ deleted: boolean }>(`/api/incomes/${id}`),
 
   dayPlan: (date: string) => api.get<DayPlanDTO>(`/api/plan?date=${date}`),
+  weekPlan: (start: string, days = 7) =>
+    api.get<WeekPlanDTO>(`/api/plan/week?start=${start}&days=${days}`),
   generatePlan: (date?: string) =>
     api.post<DayPlanDTO>('/api/plan', date ? { date } : {}),
   updateSlot: (id: string, status: PlanSlotStatus) =>

@@ -102,6 +102,11 @@ export interface BudgetRecord {
   amount: number;
 }
 
+export interface CategoryBudgetRecord {
+  category: ExpenseCategory;
+  amount: number;
+}
+
 export interface PlanSlotRecord {
   id: string;
   userId: string;
@@ -236,6 +241,11 @@ export interface DayPlanDTO {
   unplanned: { id: string; title: string }[];
   plannedMinutes: number;
   freeMinutes: number;
+}
+
+export interface WeekPlanDTO {
+  start: string;
+  days: { date: string; slots: PlanSlotDTO[]; plannedMinutes: number }[];
 }
 
 export interface NotificationDTO {

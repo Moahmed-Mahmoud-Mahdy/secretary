@@ -25,6 +25,14 @@ export interface FinanceSummaryDTO {
   spentToday: number;
   incomeThisMonth: number;
   byCategory: { category: ExpenseCategory; total: number }[];
+  /** Categories with a user-set monthly limit + live spend against it. */
+  categoryLimits: {
+    category: ExpenseCategory;
+    limit: number;
+    spent: number;
+    pct: number; // 0-200 capped
+    over: boolean;
+  }[];
   expectedRecurringRestOfMonth: number;
   dailyAverage: number;
   expenses: ExpenseDTO[];
@@ -112,17 +120,45 @@ export class FinanceUseCases {
     await this.users.setMonthlyBudget(userId, validated);
   }
 
+  async setCategoryBudget(userId: string, category: string, amount: number, monthKey?: string): Promise<void> {
+    const validated = this.validateAmount(amount);
+    const cat = this.validateCategory(category);
+    if (cat === 'OTHER' && category && !(EXPENSE_CATEGORIES as readonly string[]).includes(category.toUpperCase())) {
+      throw new ValidationError('الفئة دي مش معروفة');
+    }
+    const range = this.monthRange(monthKey);
+    const target = range.from ?? startOfMonth(nowWall());
+    await this.finance.setCategoryBudget(
+      userId,
+      target.getUTCMonth() + 1,
+      target.getUTCFullYear(),
+      cat,
+      validated
+    );
+  }
+
+  async removeCategoryBudget(userId: string, category: string, monthKey?: string): Promise<void> {
+    const cat = this.validateCategory(category);
+    if (cat === 'OTHER' && category && !(EXPENSE_CATEGORIES as readonly string[]).includes(category.toUpperCase())) {
+      throw new ValidationError('الفئة دي مش معروفة');
+    }
+    const range = this.monthRange(monthKey);
+    const target = range.from ?? startOfMonth(nowWall());
+    await this.finance.setCategoryBudget(userId, target.getUTCMonth() + 1, target.getUTCFullYear(), cat, null);
+  }
+
   async summary(userId: string, monthKey?: string): Promise<FinanceSummaryDTO> {
     const now = nowWall();
     const range = this.monthRange(monthKey);
     const monthStart = range.from ?? startOfMonth(now);
     const monthEnd = range.to ?? endOfMonth(now);
 
-    const [expenses, incomes, budget, user] = await Promise.all([
+    const [expenses, incomes, budget, user, categoryBudgets] = await Promise.all([
       this.finance.listExpenses(userId, { from: monthStart, to: monthEnd }),
       this.finance.listIncomes(userId, { from: monthStart, to: monthEnd }),
       this.finance.getBudgetAmount(userId, monthEnd.getUTCMonth() + 1, monthEnd.getUTCFullYear()),
       this.users.findById(userId),
+      this.finance.listCategoryBudgets(userId, monthEnd.getUTCMonth() + 1, monthEnd.getUTCFullYear()),
     ]);
 
     const monthSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -145,6 +181,15 @@ export class FinanceUseCases {
     const byCategory = [...byCategoryMap.entries()]
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total);
+
+    // Per-category limits vs actual spend (BRD finance — user-set budgets).
+    const categoryLimits = categoryBudgets
+      .map((cb) => {
+        const spent = byCategoryMap.get(cb.category) ?? 0;
+        const pct = cb.amount > 0 ? Math.min(200, Math.round((spent / cb.amount) * 100)) : 0;
+        return { category: cb.category, limit: cb.amount, spent, pct, over: spent > cb.amount };
+      })
+      .sort((a, b) => b.pct - a.pct);
 
     const expectedRecurringRestOfMonth = expenses
       .filter((e) => e.isRecurring && e.nextDueAt && e.nextDueAt > now && e.nextDueAt <= monthEnd)
@@ -178,6 +223,7 @@ export class FinanceUseCases {
       spentToday,
       incomeThisMonth,
       byCategory,
+      categoryLimits,
       expectedRecurringRestOfMonth,
       dailyAverage,
       expenses: expenses.map(serializeExpense).sort((a, b) => b.date.localeCompare(a.date)),

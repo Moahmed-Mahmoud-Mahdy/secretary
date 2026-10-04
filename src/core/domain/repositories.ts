@@ -1,5 +1,6 @@
 import type {
   BudgetRecord,
+  CategoryBudgetRecord,
   EventRecord,
   ExpenseRecord,
   IncomeRecord,
@@ -126,6 +127,9 @@ export interface IFinanceRepository {
   deleteIncome(userId: string, id: string): Promise<boolean>;
   getBudgetAmount(userId: string, month: number, year: number): Promise<number | null>;
   setBudgetAmount(userId: string, month: number, year: number, amount: number): Promise<void>;
+  listCategoryBudgets(userId: string, month: number, year: number): Promise<CategoryBudgetRecord[]>;
+  /** amount = null removes the limit for that category. */
+  setCategoryBudget(userId: string, month: number, year: number, category: CategoryBudgetRecord['category'], amount: number | null): Promise<void>;
 }
 
 export interface IPlanRepository {

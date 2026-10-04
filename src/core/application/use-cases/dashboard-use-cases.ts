@@ -145,6 +145,19 @@ export class DashboardUseCases {
       .filter((e) => e.isRecurring && e.nextDueAt && e.nextDueAt > now && e.nextDueAt <= endOfMonth(now))
       .reduce((s, e) => s + e.amount, 0);
 
+    const categoryBudgets = await this.finance.listCategoryBudgets(
+      userId,
+      now.getUTCMonth() + 1,
+      now.getUTCFullYear()
+    );
+    const categoryLimits = categoryBudgets.map((cb) => {
+      const spent = monthExpenses
+        .filter((e) => e.category === cb.category)
+        .reduce((s, e) => s + e.amount, 0);
+      const pct = cb.amount > 0 ? Math.min(200, Math.round((spent / cb.amount) * 100)) : 0;
+      return { category: cb.category, limit: cb.amount, spent, pct, over: spent > cb.amount };
+    });
+
     const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
     const plannedMinutes = slots
       .filter((s) => s.status !== 'MISSED')
@@ -162,6 +175,7 @@ export class DashboardUseCases {
         dayOfMonth: now.getUTCDate(),
         daysInMonth: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate(),
         incomeThisMonth: incomes.reduce((s, i) => s + i.amount, 0),
+        categoryLimits,
       }),
       ...taskInsights({
         overdue: overdue.map((t) => ({ id: t.id, title: t.title })),

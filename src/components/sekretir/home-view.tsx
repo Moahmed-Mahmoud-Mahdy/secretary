@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, CalendarClock, Loader2, Moon, Sparkles, Sun, Wallet } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Loader2, Moon, Sparkles, Sun, SunMedium, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -84,7 +84,10 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
   const firstName = user?.firstName ?? user?.name?.split(' ')[0] ?? '';
   const hour = cairoHourNow();
   const isMorning = hour >= 5 && hour < 12;
-  const greeting = data?.greeting ?? (isMorning ? 'صباح الخير' : 'مساء الخير');
+  const isAfternoon = hour >= 12 && hour < 17;
+  const isEvening = !isMorning && !isAfternoon;
+  const dayEmoji = isEvening ? '🌙' : isAfternoon ? '🌤️' : '☀️';
+  const greeting = data?.greeting ?? (isEvening ? 'مساء الخير' : 'صباح الخير');
   const finance = data?.finance;
   const budget = finance?.budget ?? 0;
   const remaining = finance?.remaining ?? 0;
@@ -99,11 +102,13 @@ export function HomeView({ refreshKey, onSendToAI, onNavigate }: HomeViewProps) 
       <div className="flex items-center gap-2">
         {isMorning ? (
           <Sun className="size-6 text-amber-500" aria-hidden />
+        ) : isAfternoon ? (
+          <SunMedium className="size-6 text-amber-500" aria-hidden />
         ) : (
           <Moon className="size-6 text-stone-500" aria-hidden />
         )}
         <h1 className="text-xl sm:text-2xl font-extrabold text-stone-900">
-          {greeting} يا {firstName} {isMorning ? '☀️' : '🌙'}
+          {greeting} يا {firstName} {dayEmoji}
         </h1>
       </div>
       {data?.suggestion ? (

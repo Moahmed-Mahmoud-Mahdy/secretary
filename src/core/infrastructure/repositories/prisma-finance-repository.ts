@@ -5,7 +5,7 @@ import type {
   DateRange,
   IFinanceRepository,
 } from '../../domain/repositories';
-import type { ExpenseRecord, IncomeRecord } from '../../domain/types';
+import type { CategoryBudgetRecord, ExpenseRecord, IncomeRecord } from '../../domain/types';
 import type { ExpenseCategory, Recurrence } from '../../domain/enums';
 
 interface ExpenseRow {
@@ -114,6 +114,35 @@ export class PrismaFinanceRepository implements IFinanceRepository {
     await this.db.budget.upsert({
       where: { userId_month_year: { userId, month, year } },
       create: { userId, month, year, amount },
+      update: { amount },
+    });
+  }
+
+  async listCategoryBudgets(userId: string, month: number, year: number): Promise<CategoryBudgetRecord[]> {
+    const rows = await this.db.categoryBudget.findMany({
+      where: { userId, month, year },
+      orderBy: { amount: 'desc' },
+    });
+    return rows.map((r) => ({
+      category: r.category as ExpenseCategory,
+      amount: r.amount,
+    }));
+  }
+
+  async setCategoryBudget(
+    userId: string,
+    month: number,
+    year: number,
+    category: CategoryBudgetRecord['category'],
+    amount: number | null
+  ): Promise<void> {
+    if (amount === null) {
+      await this.db.categoryBudget.deleteMany({ where: { userId, month, year, category } });
+      return;
+    }
+    await this.db.categoryBudget.upsert({
+      where: { userId_month_year_category: { userId, month, year, category } },
+      create: { userId, month, year, category, amount },
       update: { amount },
     });
   }

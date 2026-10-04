@@ -30,6 +30,7 @@ model User {
   expenses      Expense[]
   incomes       Income[]
   budgets       Budget[]
+  categoryBudgets CategoryBudget[]
   notifications Notification[]
   planSlots     PlanSlot[]
 }
@@ -129,6 +130,21 @@ model Budget {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, month, year])
+}
+
+// Per-category spending limits for a month (BRD finance): e.g. FOOD ≤ 1500.
+model CategoryBudget {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  month     Int // 1-12
+  year      Int
+  category  String // ExpenseCategory
+  amount    Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, month, year, category])
 }
 
 model PlanSlot {

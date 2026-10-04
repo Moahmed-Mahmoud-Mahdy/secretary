@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   Repeat,
+  Target,
   Trash2,
   TrendingUp,
   Wallet,
@@ -84,6 +85,14 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
   const [incForm, setIncForm] = useState({ amount: '', source: '', date: '' });
   const [addingIncome, setAddingIncome] = useState(false);
 
+  // per-category limits (BRD finance)
+  const [limitForm, setLimitForm] = useState<{ category: string; amount: string }>({ category: '', amount: '' });
+  const [savingLimit, setSavingLimit] = useState(false);
+
+  // copy last month's budget shortcut
+  const [lastMonthBudget, setLastMonthBudget] = useState(0);
+  const [copyingBudget, setCopyingBudget] = useState(false);
+
   const [month, setMonth] = useState(todayKey().slice(0, 7));
   const currentMonth = todayKey().slice(0, 7);
   const isCurrentMonth = month === currentMonth;
@@ -108,6 +117,38 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
     void load();
   }, [load, refreshKey]);
 
+  // Load last month's budget (for the copy shortcut).
+  const currentBudget = summary?.budget ?? 0;
+  useEffect(() => {
+    if (!isCurrentMonth || currentBudget > 0) return;
+    let cancelled = false;
+    endpoints
+      .financeSummary(shiftMonthKey(month, -1))
+      .then((s) => {
+        if (!cancelled) setLastMonthBudget(s.budget ?? 0);
+      })
+      .catch(() => {
+        /* non-fatal */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [month, isCurrentMonth, currentBudget]);
+
+  async function copyLastMonthBudget() {
+    if (copyingBudget || lastMonthBudget <= 0) return;
+    setCopyingBudget(true);
+    try {
+      await endpoints.setBudget(lastMonthBudget);
+      toast.success('اتنسخت ميزانية الشهر اللي فات 💰');
+      await load();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setCopyingBudget(false);
+    }
+  }
+
   const budget = summary?.budget ?? 0;
   const monthSpent = summary?.monthSpent ?? 0;
   const remaining = summary?.remaining ?? 0;
@@ -128,6 +169,24 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       toast.error(apiErrorMessage(e));
     } finally {
       setSavingBudget(false);
+    }
+  }
+
+  async function saveCategoryLimit(categoryRaw?: string, remove = false) {
+    const category = categoryRaw ?? limitForm.category;
+    if (!category || savingLimit) return;
+    const amount = remove ? 0 : Number(limitForm.amount);
+    if (!remove && (!amount || amount <= 0)) return;
+    setSavingLimit(true);
+    try {
+      await endpoints.setCategoryLimit(category, amount, month);
+      toast.success(remove ? 'اتشال الحد ✅' : 'حد الفئة اتحدد 🎯');
+      setLimitForm({ category: '', amount: '' });
+      await load();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setSavingLimit(false);
     }
   }
 
@@ -349,9 +408,26 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
               ariaLabel="نسبة الصرف من الميزانية"
             />
           ) : (
-            <p className="text-sm text-stone-400 mt-3">
-              لسه محددتش ميزانية — دوس «عدّل» واكتب ميزانيتك للشهر 💰
-            </p>
+            <div className="mt-3">
+              <p className="text-sm text-stone-400">
+                لسه محددتش ميزانية — دوس «عدّل» واكتب ميزانيتك للشهر 💰
+              </p>
+              {isCurrentMonth && lastMonthBudget > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void copyLastMonthBudget()}
+                  disabled={copyingBudget}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-60"
+                >
+                  {copyingBudget ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Repeat className="size-3.5" />
+                  )}
+                  انسخ ميزانية الشهر اللي فات ({fmtMoney(lastMonthBudget)} ج)
+                </button>
+              ) : null}
+            </div>
           )}
 
           {/* Stats row */}
@@ -399,24 +475,156 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
             <ul className="space-y-3">
               {summary.byCategory.map((c) => {
                 const meta = CATEGORY_META[c.category];
+                const limit = summary.categoryLimits.find((cl) => cl.category === c.category);
                 return (
                   <li key={c.category}>
                     <div className="flex items-center justify-between text-xs mb-1">
                       <span className="font-semibold text-stone-600">
                         {meta.icon} {meta.label}
+                        {limit ? (
+                          <span className="text-[10px] text-stone-400 font-normal"> (حد {fmtMoney(limit.limit)} ج)</span>
+                        ) : null}
                       </span>
-                      <span className="font-bold text-stone-700 tabular-nums">{fmtMoney(c.total)} ج</span>
+                      <span
+                        className={cn(
+                          'font-bold tabular-nums',
+                          limit && limit.over ? 'text-rose-600' : 'text-stone-700'
+                        )}
+                      >
+                        {fmtMoney(c.total)} ج
+                      </span>
                     </div>
                     <SekretirProgress
                       value={(c.total / maxCat) * 100}
                       className="h-2"
-                      barClassName={c.category === 'FOOD' ? 'bg-amber-500' : 'bg-stone-400'}
+                      barClassName={
+                        limit && limit.over
+                          ? 'bg-rose-500'
+                          : c.category === 'FOOD'
+                            ? 'bg-amber-500'
+                            : 'bg-stone-400'
+                      }
                       ariaLabel={`مصاريف ${meta.label}`}
                     />
                   </li>
                 );
               })}
             </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Category limits (per-category budgets) */}
+      {summary ? (
+        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+          <CardContent className="p-4 sm:p-5">
+            <h2 className="font-bold text-stone-800 flex items-center gap-2 mb-1">
+              <Target className="size-4 text-amber-600" />
+              حدود الفئات
+            </h2>
+            <p className="text-[11px] text-stone-400 mb-3">
+              حدد سقف صرف لكل فئة وسكرتير ينبّهك قبل ما تعديها
+            </p>
+
+            {summary.categoryLimits.length > 0 ? (
+              <ul className="space-y-3 mb-4">
+                {summary.categoryLimits.map((cl) => {
+                  const meta = CATEGORY_META[cl.category];
+                  const barColor = cl.over ? 'bg-rose-500' : cl.pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
+                  return (
+                    <li key={cl.category} className={cn('rounded-xl border px-3 py-2.5', cl.over ? 'border-rose-200 bg-rose-50/50' : 'border-stone-100 bg-stone-50/60')}>
+                      <div className="flex items-center justify-between text-xs mb-1.5 gap-2">
+                        <span className="font-semibold text-stone-700 flex items-center gap-1.5 min-w-0">
+                          <span aria-hidden>{meta.icon}</span>
+                          <span className="truncate">{meta.label}</span>
+                          {cl.over ? (
+                            <span className="shrink-0 rounded-full bg-rose-100 text-rose-700 px-1.5 py-0.5 text-[10px] font-bold">
+                              عدّيت الحد!
+                            </span>
+                          ) : cl.pct >= 80 ? (
+                            <span className="shrink-0 rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-bold">
+                              قربت
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className={cn('font-bold tabular-nums shrink-0', cl.over ? 'text-rose-600' : 'text-stone-600')}>
+                          {fmtMoney(cl.spent)} / {fmtMoney(cl.limit)} ج
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <SekretirProgress
+                          value={cl.pct}
+                          className="h-2 flex-1"
+                          barClassName={barColor}
+                          ariaLabel={`حد ${meta.label}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setLimitForm({ category: cl.category, amount: String(cl.limit) })}
+                          className="shrink-0 rounded-full p-1 text-stone-400 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                          aria-label={`عدل حد ${meta.label}`}
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void saveCategoryLimit(cl.category, true)}
+                          className="shrink-0 rounded-full p-1 text-stone-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                          aria-label={`شيل حد ${meta.label}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-xs text-stone-400 mb-4">لسه مفيش حدود — اختار فئة واكتب سقف صرفها للشهر.</p>
+            )}
+
+            {/* add / update limit row */}
+            {isCurrentMonth ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Select
+                  value={limitForm.category}
+                  onValueChange={(v) => setLimitForm((f) => ({ ...f, category: v }))}
+                  dir="rtl"
+                >
+                  <SelectTrigger className="w-[140px] h-9 rounded-xl text-xs bg-white" aria-label="اختار الفئة">
+                    <SelectValue placeholder="فئة…" />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    {CATEGORY_OPTIONS.filter((o) => !summary.categoryLimits.some((cl) => cl.category === o.value) || limitForm.category === o.value).map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={limitForm.amount}
+                  onChange={(e) => setLimitForm((f) => ({ ...f, amount: e.target.value }))}
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  placeholder="الحد (ج)"
+                  className="flex-1 min-w-[100px] h-9 rounded-xl text-sm"
+                  aria-label="مبلغ حد الفئة"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => void saveCategoryLimit()}
+                  disabled={!limitForm.category || !limitForm.amount || Number(limitForm.amount) <= 0 || savingLimit}
+                  className="h-9 rounded-xl bg-amber-600 hover:bg-amber-700 text-white gap-1"
+                >
+                  {savingLimit ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  حدد
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-stone-400">تعديل الحدود متاح في الشهر الحالي بس (الشهر ده للعرض بس).</p>
+            )}
           </CardContent>
         </Card>
       ) : null}

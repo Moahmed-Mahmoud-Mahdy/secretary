@@ -199,3 +199,36 @@ Task: Status assessment + browser QA + new features (time-tracking, duration-cal
 - Timer chip shows whole minutes (ticks every 30s) — seconds precision intentionally omitted.
 - ASR voice path still unverified with a real mic (headless env limitation); TTS Arabic accent acceptable (tongtong voice).
 - Next round suggestions: per-task live timer on home timeline; budget copy from last month; habits/recurring check-in view (BRD §16); dark mode; per-category budget limits; weekly plan view (7-day planner grid).
+
+---
+Task ID: cron-20261004-3
+Agent: main (Z.ai Code) — webDevReview round 3
+Task: Status assessment + browser QA + new features (per-category budget limits, weekly plan view) + bug fixes + styling
+
+## Current project status
+- STABLE. Full browser QA re-verified: home (new afternoon greeting 🌤️ + SunMedium icon), assistant (AI QUERY regression OK, tone rule added), tasks/projects render, calendar day+week modes, finance with limits. `bun run lint` clean, `tsc --noEmit` clean (app code), no new runtime errors in dev.log (one historical Fast-Refresh warning was a transient mid-edit TDZ state, self-resolved).
+- QA findings fixed this round:
+  1. **Greeting emoji mismatch** — at 12-17h the greeting said "نهارك سعيد" but showed 🌙 moon. Now: morning ☀️/Sun, afternoon 🌤️/SunMedium, evening 🌙/Moon (home-view.tsx).
+  2. **AI tone drift** — assistant sometimes addressed the user as "عندها" (3rd-person feminine). Added explicit prompt rule in answerQuestion + smallTalk: always masculine direct "عندك/انت/صرفت". Verified: "حد صرفي على الأكل قد إيه؟ والمواصلات عدّى الحد؟" → correct real-data answer "صرفت على الأكل 320... المواصلات عدّى الحد بـ 15 جنيه".
+  - Note: "صرفت X من8,000" spacing seen in a11y snapshot was a snapshot artifact — real DOM text is correct ("من 8,000").
+
+## This round: completed modifications & verification
+1. **Per-category budget limits (BRD finance)** — full stack:
+   - Schema: new `CategoryBudget` model (unique userId+month+year+category); db:push OK; db.ts global key bumped to __sekretirPrismaV3 + dev server restarted (per infra note).
+   - Domain: CategoryBudgetRecord type; IFinanceRepository.listCategoryBudgets/setCategoryBudget (null=remove); Prisma impl via upsert/deleteMany.
+   - Application: FinanceUseCases.setCategoryBudget/removeCategoryBudget (validates category + amount, supports ?month=); FinanceSummaryDTO.categoryLimits [{category, limit, spent, pct (0-200), over}] sorted by pct desc.
+   - Insights: financeInsights now emits 🚨 WARNING when over limit ("خالصت حد مواصلات...") and 🎯 SUGGESTION at ≥80% ("قربت توصل لحد أكل وشرب (80%...)") — wired in dashboard via listCategoryBudgets; verified live on home feed.
+   - AI: new action `SET_CATEGORY_BUDGET` (auto-execute, prompt rule 14 distinguishes "ميزانية الفواتير 500" → category limit vs "ميزانيتي كذا" → SET_BUDGET); QUERY FINANCE_SUMMARY/BUDGET_STATUS payloads now include categoryLimits. Verified live: "خلي ميزانية الفواتير 500 جنيه في الشهر" → "ظبطت حد صرف فواتير على 500 جنيه في الشهر".
+   - API: POST /api/budget/limits {category, amount, month?} (amount≤0 removes).
+   - UI (finance view): new "🎯 حدود الفئات" card — per-limit rows with over/near badges, spend-vs-limit progress (emerald/amber/rose), inline edit (pencil prefills form) + remove (trash); add row = category Select (hides already-limited) + amount + حدد; read-only note for past months; category breakdown bars now show "(حد X ج)" reference and turn rose when over. E2E verified: added SHOPPING 300 via UI (toast + row appears + progressbar 0%).
+   - Seed: demo user now gets FOOD 1200 / TRANSPORT 400 / BILLS 600 limits on re-seed.
+2. **Weekly plan view (BRD §16)** — calendar day/week toggle:
+   - Domain: WeekPlanDTO {start, days[{date, slots, plannedMinutes}]}; PlanningUseCases.getWeekPlan (1-14 days capped, slot buckets by day, task title join).
+   - API: GET /api/plan/week?start=YYYY-MM-DD&days=7.
+   - UI: pill toggle (يوم/أسبوع) in calendar header; week mode renders 7-column grid (RTL, Sunday-first matching week strip), each day: header button (opens that day in day mode), compact occurrence chips (amber=events, emerald=planned, line-through=done, faded=missed, title tooltip), "+N كمان" overflow after 5, per-day planned-hours footer "⏳ X سا", today column amber-tinted; horizontal scroll on mobile (min-w 640px). Verified live: today column shows محاضرة + 3 planned slots + "⏳ 8 سا", other days "فاضي".
+3. **Copy last-month budget** — when current month has no budget, finance view shows "انسخ ميزانية الشهر اللي فات (X ج)" chip (fetches prev month summary, one click sets it). Seed-data friendly for new months.
+
+## Unresolved issues / risks & next priorities
+- agent-browser CLI here can't set a mobile viewport (no flag) — mobile verified by responsive classes only this round (week grid scrolls horizontally on mobile by design; day views were mobile-verified in earlier rounds).
+- Category limit edit reuses the add row (pencil prefills it) — if user navigates months the form targets browsed month (intended).
+- Next round suggestions: notification when a category limit is crossed (BUDGET_ALERT on expense create vs its limit); "الأسبوع الجاي/اللي فات" nav also in week mode already works via week strip; dark mode; habits/recurring check-in view (BRD §16); transfer between categories (BRD §19); per-task live timer on home timeline.

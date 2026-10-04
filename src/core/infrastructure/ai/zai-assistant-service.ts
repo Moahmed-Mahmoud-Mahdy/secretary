@@ -81,6 +81,7 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 {"type":"CREATE_EXPENSE","amount":عدد,"category":"FOOD"|"TRANSPORT"|"EDUCATION"|"PROJECTS"|"BILLS"|"SHOPPING"|"ENTERTAINMENT"|"OTHER","description":null|"وصف","date":null|"YYYY-MM-DD"}
 {"type":"CREATE_INCOME","amount":عدد,"source":null|"المصدر","date":null|"YYYY-MM-DD"}
 {"type":"SET_BUDGET","amount":عدد}
+{"type":"SET_CATEGORY_BUDGET","category":"FOOD"|"TRANSPORT"|"EDUCATION"|"PROJECTS"|"BILLS"|"SHOPPING"|"ENTERTAINMENT"|"OTHER","amount":عدد}
 {"type":"CREATE_PROJECT","name":"...","deadline":null|"YYYY-MM-DD"}
 {"type":"COMPLETE_TASK","taskName":"اسم المهمة زي ما المستخدم قالها"}
 {"type":"DELETE_TASK","taskName":"اسم المهمة"}
@@ -106,7 +107,8 @@ CREATE_TASK, CREATE_EVENT, CREATE_EXPENSE, CREATE_INCOME, SET_BUDGET, CREATE_PRO
 11. "خطة" أو "نظّم يومي" أو "رتب مهامي" → PLAN_DAY.
 12. لو المستخدم بيقول هدف كبير أو مشروع من غير تفاصيل (مثال: "عايز أعمل موقع تخرج"، "عايز أخلص مشروع الـPOS"، "عايز أتعلم برمجة") → intent=SUGGEST_PLAN و actions فيه عنصر واحد CREATE_PROJECT_WITH_TASKS: اسم المشروع + 4-8 مهام منطقية مترتبة بترتيب التنفيذ، كل مهمة بمدة تقديرية معقولة. لو الهدف مطابق لاسم مشروع من مشاريع المستخدم استخدم نفس الاسم وجزّئه لمهام جديدة جواه. ممنوع تختلق deadline.
 13. لو المستخدم طلب تقسيم مهمة موجودة لخطوات (مثال: "قسمل مهمة X لخطوات"، "ضيف خطوات تحت X") → action واحد ADD_SUBTASKS باسم المهمة و3-6 خطوات.
-14. ممنوع تطلع أي حاجة غير الـ JSON.`;
+14. "خلي/ظبط/حدد ميزانية [الفئة] بمبلغ" أو "حد صرفي على الأكل كذا" (فئة معينة من غير ما يقول ميزانية الشهر كلها) → SET_CATEGORY_BUDGET بالفئة المناسبة. لو قال "ميزانيتي كذا" من غير فئة → SET_BUDGET.
+15. ممنوع تطلع أي حاجة غير الـ JSON.`;
 }
 
 export class ZaiAssistantService implements IAiAssistantService {
@@ -140,6 +142,7 @@ export class ZaiAssistantService implements IAiAssistantService {
 هيبةلك سؤال ومعاه داتا حقيقية من نظام المستخدم (JSON).
 قواعد صارمة:
 - جاوب من الـ JSON ده وبس. ممنوع منعًا باتًا تخترع أرقام أو مواعيد أو مهام مش في الداتا.
+- خاطب المستخدم دايمًا بصيغة المذكر المباشر (عندك، انت، خلاصت، صرفت) — ممنوع نهائيًا "عندها/عنده/يحب" وهي كلام عن حد تالت.
 - لو الداتا فاضية أو مش فيها إجابة، قول له بصراحة إن مفيش بيانات لسه.
 - جاوب في سطرين على بعض، بالمصري، بأسلوب ودود مبالغش فيه. ممكن إيموجي واحد بس لو مناسب.
 - الأرقام اللي تقولها قرّبها بشكل مقروء (مثلاً 5250 جنيه).`;
@@ -151,7 +154,7 @@ export class ZaiAssistantService implements IAiAssistantService {
 
   async smallTalk(input: SmallTalkInput): Promise<string> {
     const system = `أنت "سكرتير" — مساعد شخصي بتكلم بالمصري الطبيعي، ودود ومختصر، من غير تصنع ومن غير إيموجي كتير.
-اسم المستخدم: ${input.userName}. ردّ على كلامه في جملة أو اتنين بالكتير، وممكن تقترح عليه توجّه (مهام، مواعيد، مصاريف، خطة يوم) بشكل طبيعي لو مناسب.`;
+اسم المستخدم: ${input.userName}. خاطبه دايمًا بصيغة المذكر المباشر (عندك، انت) — ممنوع "عندها/عنده". ردّ على كلامه في جملة أو اتنين بالكتير، وممكن تقترح عليه توجّه (مهام، مواعيد، مصاريف، خطة يوم) بشكل طبيعي لو مناسب.`;
     return complete([
       { role: 'assistant', content: system },
       { role: 'user', content: input.message },

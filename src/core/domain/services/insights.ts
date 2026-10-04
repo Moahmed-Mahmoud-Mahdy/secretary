@@ -1,4 +1,6 @@
 import type { InsightDTO } from '../types';
+import type { ExpenseCategory } from '../enums';
+import { CATEGORY_LABELS_AR } from '../enums';
 
 // ============================================================
 // Smart insights & warnings (BRD §23, §24) — deterministic rules
@@ -14,6 +16,8 @@ export interface FinanceSnapshot {
   dayOfMonth: number;
   daysInMonth: number;
   incomeThisMonth: number;
+  /** User-set per-category limits vs actual spend. */
+  categoryLimits?: { category: ExpenseCategory; limit: number; spent: number; pct: number; over: boolean }[];
 }
 
 export interface TaskSnapshot {
@@ -109,6 +113,30 @@ export function financeInsights(s: FinanceSnapshot): InsightDTO[] {
     out.push(
       makeInsight('WARNING', 'FINANCE', '📉', `صرفك الشهر ده (${Math.round(s.monthSpent)} ج) عدّى دخلك (${Math.round(s.incomeThisMonth)} ج).`)
     );
+  }
+
+  // Per-category limit warnings (BRD finance): over limit → WARNING, near limit → SUGGESTION.
+  for (const cl of s.categoryLimits ?? []) {
+    const label = CATEGORY_LABELS_AR[cl.category] ?? cl.category;
+    if (cl.over) {
+      out.push(
+        makeInsight(
+          'WARNING',
+          'FINANCE',
+          '🚨',
+          `خالصت حد ${label} اللي حددته (${Math.round(cl.spent)} من ${Math.round(cl.limit)} ج) — ممكن تظبطه أو تقلل صرفك فيه.`
+        )
+      );
+    } else if (cl.pct >= 80) {
+      out.push(
+        makeInsight(
+          'SUGGESTION',
+          'FINANCE',
+          '🎯',
+          `قربت توصل لحد ${label} (${cl.pct}% — ${Math.round(cl.spent)} من ${Math.round(cl.limit)} ج). خلي بالك من باقي الشهر.`
+        )
+      );
+    }
   }
 
   return out;
