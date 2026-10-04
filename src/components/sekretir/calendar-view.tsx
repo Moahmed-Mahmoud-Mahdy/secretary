@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
   CalendarPlus,
@@ -52,6 +52,7 @@ import { CATEGORY_META, RECURRENCE_LABELS, RECURRENCE_OPTIONS, fmtMoney, streakC
 import {
   addDaysKey,
   cairoHourNow,
+  cairoNowMinutes,
   fmtTime,
   keyDayNumber,
   monthLabel,
@@ -170,6 +171,13 @@ export function CalendarView({ refreshKey, onAuthError, focusDate, onFocusDateCo
   const [weekPlan, setWeekPlan] = useState<WeekPlanDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [slotBusy, setSlotBusy] = useState<string | null>(null);
+  // ticks every 60s so the "دلوقتي" now-line stays accurate
+  const [nowTick, setNowTick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setNowTick((x) => x + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   // recurring hub (المتكرر)
   const [habits, setHabits] = useState<HabitDTO[]>([]);
@@ -321,6 +329,16 @@ export function CalendarView({ refreshKey, onAuthError, focusDate, onFocusDateCo
     ...events.filter((ev) => eventOccursOn(ev, selectedKey)).map((ev) => eventToOccurrence(ev, selectedKey)),
     ...(plan?.slots ?? []).map(slotToOccurrence),
   ].sort((a, b) => a.startAt.localeCompare(b.startAt));
+
+  // "دلوقتي" divider: where the current Cairo time falls inside today's agenda
+  const nowMin = useMemo(() => cairoNowMinutes(), [nowTick]);
+  const nowLabel = `${String(Math.floor(nowMin / 60)).padStart(2, '0')}:${String(nowMin % 60).padStart(2, '0')}`;
+  const isToday = selectedKey === today;
+  const startMinutes = (occ: OccurrenceDTO) =>
+    new Date(occ.startAt).getUTCHours() * 60 + new Date(occ.startAt).getUTCMinutes();
+  const nowIdx = isToday && !loading && agenda.length > 0
+    ? agenda.findIndex((occ) => startMinutes(occ) > nowMin)
+    : -2; // -2 = hidden
 
   async function updateSlot(slotId: string, status: 'DONE' | 'MISSED' | 'PLANNED') {
     setSlotBusy(slotId);
@@ -896,22 +914,25 @@ export function CalendarView({ refreshKey, onAuthError, focusDate, onFocusDateCo
             </div>
           ) : (
             <ul className="mt-3 space-y-2">
-              {agenda.map((occ) => {
+              {agenda.map((occ, idx) => {
                 const isEvent = occ.kind === 'EVENT';
                 const done = occ.kind === 'PLANNED_TASK' && occ.status === 'DONE';
                 const missed = occ.kind === 'PLANNED_TASK' && occ.status === 'MISSED';
+                const showNow = nowIdx >= 0 && idx === nowIdx;
                 return (
-                  <li
-                    key={occ.key}
-                    className={cn(
-                      'rounded-xl border px-3 py-2.5 flex items-start gap-2.5',
-                      isEvent
-                        ? 'border-amber-200 bg-amber-50/60'
-                        : done
-                          ? 'border-stone-200 bg-stone-50'
-                          : 'border-emerald-200 bg-emerald-50/60'
-                    )}
-                  >
+                  <Fragment key={occ.key}>
+                    {showNow ? <NowDivider timeLabel={nowLabel} /> : null}
+                    <li
+                      className={cn(
+                        'rounded-xl border px-3 py-2.5 flex items-start gap-2.5 transition-shadow',
+                        isEvent
+                          ? 'border-amber-200 bg-amber-50/60'
+                          : done
+                            ? 'border-stone-200 bg-stone-50'
+                            : 'border-emerald-200 bg-emerald-50/60',
+                        showNow && 'ring-2 ring-rose-200 ring-offset-1'
+                      )}
+                    >
                     {occ.kind === 'PLANNED_TASK' ? (
                       <Checkbox
                         checked={done}
@@ -992,7 +1013,8 @@ export function CalendarView({ refreshKey, onAuthError, focusDate, onFocusDateCo
                     ) : (
                       <span className="text-[10px] font-bold text-emerald-600 shrink-0 mt-1">خلصت ✅</span>
                     )}
-                  </li>
+                    </li>
+                  </Fragment>
                 );
               })}
             </ul>
@@ -1183,5 +1205,25 @@ export function CalendarView({ refreshKey, onAuthError, focusDate, onFocusDateCo
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Red "current time" divider inserted into today's agenda at the right position. */
+function NowDivider({ timeLabel }: { timeLabel: string }) {
+  return (
+    <li
+      className="flex items-center gap-2 py-0.5 list-none"
+      role="separator"
+      aria-label={`الوقت الحالي ${timeLabel}`}
+    >
+      <span className="relative flex size-2.5 shrink-0" aria-hidden>
+        <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-60 animate-ping" />
+        <span className="relative inline-flex rounded-full size-2.5 bg-rose-500 ring-2 ring-rose-100" />
+      </span>
+      <span className="flex-1 h-px bg-gradient-to-l from-rose-300 to-rose-200" aria-hidden />
+      <span className="text-[10px] font-extrabold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5 tabular-nums shrink-0">
+        دلوقتي {timeLabel}
+      </span>
+    </li>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { Bot } from 'lucide-react';
 import { AppShell, type SekretirView } from '@/components/sekretir/app-shell';
 import { AuthScreen } from '@/components/sekretir/auth-screen';
@@ -152,39 +153,48 @@ export default function Page() {
       refreshKey={refreshKey}
       onOpenSearch={() => setSearchOpen(true)}
     >
-      {view === 'home' ? (
-        <HomeView refreshKey={refreshKey} onSendToAI={handleSendToAI} onNavigate={setView} />
-      ) : null}
-      {view === 'assistant' ? (
-        <AssistantView
-          queuedMessage={queuedMessage}
-          onQueuedConsumed={() => setQueuedMessage(null)}
-          onExecutedChange={bumpRefresh}
-        />
-      ) : null}
-      {view === 'tasks' ? <TasksView refreshKey={refreshKey} onAuthError={handleLogout} /> : null}
-      {view === 'projects' ? (
-        <ProjectsView refreshKey={refreshKey} onAuthError={handleLogout} />
-      ) : null}
-      {view === 'calendar' ? (
-        <CalendarView
-          refreshKey={refreshKey}
-          onAuthError={handleLogout}
-          focusDate={calendarFocus}
-          onFocusDateConsumed={() => setCalendarFocus(null)}
-        />
-      ) : null}
-      {view === 'finance' ? (
-        <FinanceView
-          refreshKey={refreshKey}
-          onAuthError={handleLogout}
-          focusMonth={financeFocusMonth}
-          onFocusMonthConsumed={() => setFinanceFocusMonth(null)}
-        />
-      ) : null}
-      {view === 'settings' ? (
-        <SettingsView user={user} onUserUpdated={setUser} onAuthError={handleLogout} />
-      ) : null}
+      {/* View transition — keyed remount replays a soft rise on every switch */}
+      <motion.div
+        key={view}
+        initial={{ opacity: 0, y: 14, scale: 0.995 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      >
+        {view === 'home' ? (
+          <HomeView refreshKey={refreshKey} onSendToAI={handleSendToAI} onNavigate={setView} />
+        ) : null}
+        {view === 'assistant' ? (
+          <AssistantView
+            queuedMessage={queuedMessage}
+            onQueuedConsumed={() => setQueuedMessage(null)}
+            onExecutedChange={bumpRefresh}
+            userName={user.name}
+          />
+        ) : null}
+        {view === 'tasks' ? <TasksView refreshKey={refreshKey} onAuthError={handleLogout} /> : null}
+        {view === 'projects' ? (
+          <ProjectsView refreshKey={refreshKey} onAuthError={handleLogout} />
+        ) : null}
+        {view === 'calendar' ? (
+          <CalendarView
+            refreshKey={refreshKey}
+            onAuthError={handleLogout}
+            focusDate={calendarFocus}
+            onFocusDateConsumed={() => setCalendarFocus(null)}
+          />
+        ) : null}
+        {view === 'finance' ? (
+          <FinanceView
+            refreshKey={refreshKey}
+            onAuthError={handleLogout}
+            focusMonth={financeFocusMonth}
+            onFocusMonthConsumed={() => setFinanceFocusMonth(null)}
+          />
+        ) : null}
+        {view === 'settings' ? (
+          <SettingsView user={user} onUserUpdated={setUser} onAuthError={handleLogout} />
+        ) : null}
+      </motion.div>
 
       <SearchPalette
         open={searchOpen}

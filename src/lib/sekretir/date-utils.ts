@@ -149,6 +149,19 @@ export function cairoHourNow(): number {
   return Number(hour ?? 0);
 }
 
+/** Current time in Cairo as minutes-since-midnight (wall clock) — for "now" markers. */
+export function cairoNowMinutes(): number {
+  const parts = Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Cairo',
+    hour: 'numeric',
+    hourCycle: 'h23',
+    minute: 'numeric',
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return hour * 60 + minute;
+}
+
 /** "أكتوبر 2026" Arabic label for a "YYYY-MM" month key. */
 export function monthLabel(monthKey: string): string {
   const [y, m] = monthKey.split('-').map(Number);

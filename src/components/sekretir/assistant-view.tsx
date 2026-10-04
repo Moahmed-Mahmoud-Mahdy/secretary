@@ -72,12 +72,14 @@ interface AssistantViewProps {
   queuedMessage: string | null;
   onQueuedConsumed: () => void;
   onExecutedChange: () => void;
+  userName?: string;
 }
 
 export function AssistantView({
   queuedMessage,
   onQueuedConsumed,
   onExecutedChange,
+  userName,
 }: AssistantViewProps) {
   const [messages, setMessages] = useState<ChatMsg[]>([WELCOME]);
   const [input, setInput] = useState('');
@@ -242,7 +244,13 @@ export function AssistantView({
         {messages.map((m) => (
           <div key={m.id} className="sekretir-msg">
             {m.role === 'user' ? (
-              <div className="flex justify-start">
+              <div className="flex justify-start gap-2 items-end">
+                <div
+                  className="size-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white flex items-center justify-center shrink-0 shadow-sm text-sm font-extrabold"
+                  aria-hidden
+                >
+                  {userName?.trim()?.[0] ?? 'أ'}
+                </div>
                 <div className="max-w-[85%] sm:max-w-[70%]">
                   <div className="whitespace-pre-wrap rounded-2xl rounded-ss-sm bg-gradient-to-br from-amber-500 to-amber-600 text-white px-4 py-2.5 text-sm shadow-md shadow-amber-600/20">
                     {m.text}

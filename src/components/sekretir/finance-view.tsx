@@ -23,6 +23,7 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { CATEGORY_COLORS, DonutChart } from '@/components/sekretir/donut-chart';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -579,53 +580,73 @@ export function FinanceView({ refreshKey, onAuthError, focusMonth, onFocusMonthC
           <CardContent className="p-4 sm:p-5">
             <h2 className="font-bold text-stone-800 mb-1">صرفت في إيه؟</h2>
             <p className="text-[11px] text-stone-400 mb-3">دوس على أي فئة تشوف تقريرها بالتفصيل</p>
-            <ul className="space-y-1.5">
-              {summary.byCategory.map((c) => {
-                const meta = CATEGORY_META[c.category];
-                const limit = summary.categoryLimits.find((cl) => cl.category === c.category);
-                return (
-                  <li key={c.category}>
-                    <button
-                      type="button"
-                      onClick={() => setDrillCategory(c.category)}
-                      className="group w-full text-right rounded-xl px-2 py-1.5 -mx-2 hover:bg-amber-50/60 focus-visible:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 transition-colors"
-                      aria-label={`تقرير فئة ${meta.label}`}
-                    >
-                      <div className="flex items-center justify-between text-xs mb-1 gap-2">
-                        <span className="font-semibold text-stone-600 flex items-center gap-1 min-w-0">
-                          <span aria-hidden>{meta.icon}</span>
-                          <span className="truncate">{meta.label}</span>
-                          {limit ? (
-                            <span className="text-[10px] text-stone-400 font-normal"> (حد {fmtMoney(limit.limit)} ج)</span>
-                          ) : null}
-                          <ChevronLeft className="size-3 text-stone-300 group-hover:text-amber-600 transition-colors shrink-0" aria-hidden />
-                        </span>
-                        <span
-                          className={cn(
-                            'font-bold tabular-nums shrink-0',
-                            limit && limit.over ? 'text-rose-600' : 'text-stone-700'
-                          )}
-                        >
-                          {fmtMoney(c.total)} ج
-                        </span>
-                      </div>
-                      <SekretirProgress
-                        value={(c.total / maxCat) * 100}
-                        className="h-2"
-                        barClassName={
-                          limit && limit.over
-                            ? 'bg-rose-500'
-                            : c.category === 'FOOD'
-                              ? 'bg-amber-500'
-                              : 'bg-stone-400'
-                        }
-                        ariaLabel={`مصاريف ${meta.label}`}
-                      />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
+              {/* Donut — share per category */}
+              <DonutChart
+                slices={summary.byCategory.map((c) => ({
+                  key: c.category,
+                  label: CATEGORY_META[c.category].label,
+                  value: c.total,
+                  color: CATEGORY_COLORS[c.category] ?? '#a8a29e',
+                }))}
+                centerTitle="إجمالي"
+                centerValue={`${fmtMoney(summary.monthSpent)} ج`}
+              />
+              <ul className="flex-1 w-full space-y-1.5">
+                {summary.byCategory.map((c) => {
+                  const meta = CATEGORY_META[c.category];
+                  const limit = summary.categoryLimits.find((cl) => cl.category === c.category);
+                  const share = summary.monthSpent > 0 ? Math.round((c.total / summary.monthSpent) * 100) : 0;
+                  return (
+                    <li key={c.category}>
+                      <button
+                        type="button"
+                        onClick={() => setDrillCategory(c.category)}
+                        className="group w-full text-right rounded-xl px-2 py-1.5 -mx-2 hover:bg-amber-50/60 focus-visible:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 transition-colors"
+                        aria-label={`تقرير فئة ${meta.label}`}
+                      >
+                        <div className="flex items-center justify-between text-xs mb-1 gap-2">
+                          <span className="font-semibold text-stone-600 flex items-center gap-1 min-w-0">
+                            <span
+                              aria-hidden
+                              className="size-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: CATEGORY_COLORS[c.category] ?? '#a8a29e' }}
+                            />
+                            <span aria-hidden>{meta.icon}</span>
+                            <span className="truncate">{meta.label}</span>
+                            <span className="text-[10px] text-stone-400 font-normal tabular-nums shrink-0">{share}%</span>
+                            {limit ? (
+                              <span className="text-[10px] text-stone-400 font-normal"> (حد {fmtMoney(limit.limit)} ج)</span>
+                            ) : null}
+                            <ChevronLeft className="size-3 text-stone-300 group-hover:text-amber-600 transition-colors shrink-0" aria-hidden />
+                          </span>
+                          <span
+                            className={cn(
+                              'font-bold tabular-nums shrink-0',
+                              limit && limit.over ? 'text-rose-600' : 'text-stone-700'
+                            )}
+                          >
+                            {fmtMoney(c.total)} ج
+                          </span>
+                        </div>
+                        <SekretirProgress
+                          value={(c.total / maxCat) * 100}
+                          className="h-2"
+                          barClassName={
+                            limit && limit.over
+                              ? 'bg-rose-500'
+                              : c.category === 'FOOD'
+                                ? 'bg-amber-500'
+                                : 'bg-stone-400'
+                          }
+                          ariaLabel={`مصاريف ${meta.label}`}
+                        />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           </CardContent>
         </Card>
       ) : null}

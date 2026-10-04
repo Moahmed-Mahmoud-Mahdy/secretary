@@ -52,6 +52,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { EmptyRobot } from '@/components/sekretir/empty-robot';
 import {
   apiErrorMessage,
   endpoints,
@@ -180,6 +181,18 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
     }
     return sortTasks(list);
   }, [tasks, filter]);
+
+  // Per-filter counts shown inside the filter chips
+  const filterCounts = useMemo(() => {
+    const today = todayKey();
+    const active = tasks.filter((t) => t.status !== 'COMPLETED' && t.status !== 'CANCELLED');
+    return {
+      all: tasks.length,
+      today: active.filter((t) => t.deadline?.slice(0, 10) === today).length,
+      overdue: active.filter((t) => t.isOverdue).length,
+      done: tasks.filter((t) => t.status === 'COMPLETED').length,
+    } as Record<Filter, number>;
+  }, [tasks]);
 
   function upsert(updated: TaskDTO) {
     setTasks((prev) =>
@@ -360,13 +373,23 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
               aria-selected={filter === f.id}
               onClick={() => setFilter(f.id)}
               className={cn(
-                'px-3 py-1.5 rounded-full text-xs font-bold transition-colors',
+                'px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-95',
                 filter === f.id
-                  ? 'bg-amber-600 text-white'
+                  ? 'bg-amber-600 text-white shadow-sm'
                   : 'bg-white border border-stone-200 text-stone-500 hover:bg-stone-100'
               )}
             >
               {f.label}
+              {filterCounts[f.id] > 0 ? (
+                <span
+                  className={cn(
+                    'ms-1 tabular-nums text-[10px]',
+                    filter === f.id ? 'text-amber-100' : 'text-stone-400'
+                  )}
+                >
+                  {filterCounts[f.id]}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -414,13 +437,12 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
           ))}
         </div>
       ) : visible.length === 0 ? (
-        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
-          <CardContent className="py-12 text-center">
-            <p className="text-4xl mb-3" aria-hidden>📋</p>
-            <p className="font-bold text-stone-700">مفيش مهام لسه</p>
-            <p className="text-sm text-stone-400 mt-1">
-              قولي عايز تعمل إيه وأنا أظبطها 😄
-            </p>
+        <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md transition-all duration-200">
+          <CardContent className="p-4">
+            <EmptyRobot
+              title="مفيش مهام لسه"
+              hint="قولي عايز تعمل إيه وأنا أظبطها لك 😄"
+            />
           </CardContent>
         </Card>
       ) : (
@@ -432,17 +454,29 @@ export function TasksView({ refreshKey, onAuthError }: TasksViewProps) {
               <li key={task.id} className="sekretir-rise" style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
                 <Card
                   className={cn(
-                    'bg-white border rounded-2xl shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5',
+                    'relative overflow-hidden bg-white border rounded-2xl shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5',
                     task.isTracking && 'border-emerald-300 ring-1 ring-emerald-100',
                     !task.isTracking && (task.isOverdue ? 'border-rose-200' : 'border-stone-200')
                   )}
                 >
+                  {/* Priority edge strip (start side) */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'absolute inset-y-2 start-0 w-1 rounded-full',
+                      done
+                        ? 'bg-emerald-400/70'
+                        : task.isOverdue && task.priority !== 'URGENT'
+                          ? 'bg-rose-400'
+                          : PRIORITY_META[task.priority].dot
+                    )}
+                  />
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex items-start gap-3">
                       <Checkbox
                         checked={done}
                         onCheckedChange={() => toggleTask(task)}
-                        className="mt-1 size-5 shrink-0 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+                        className="mt-1 size-5 shrink-0 transition-transform active:scale-90 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600 data-[state=checked]:animate-check-pop"
                         aria-label={done ? 'ارجع المهمة' : 'خلصت المهمة'}
                       />
                       <div className="flex-1 min-w-0">

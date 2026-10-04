@@ -458,3 +458,27 @@ Task: Status assessment + browser QA + new features (global search palette ⌘K,
 - Palette results limited to 6/group — personal-scale adequate.
 - Next round suggestions: per-item highlight after search navigation; import/restore from backup JSON; TTS Arabic voice comparison (kazi/xiaochen); PWA offline shell revisit (manifest exists, SW skipped — zero value in dev-only sandbox, real value in prod); weekly report on home ("أسبوعك" mini bar chart of completions/day); AI "أيهما أفضل" trade-off answers (compare two tasks' deadlines).
 - QA artifacts: download/qa-r10-*.png (palette light/dark/results, settings light/dark/mobile, final home).
+---
+Task ID: ui-suggestions-1
+Agent: main (Z.ai Code)
+Task: UI improvement suggestions (user request in Egyptian Arabic) + implementation of top 7
+
+Work Log:
+- UI audit via agent-browser: screenshotted all 7 views (light/dark, desktop/mobile) as qa baseline before touching anything
+- Presented prioritized suggestions to user in Arabic; implemented the high-impact set:
+  1. View transitions (page.tsx): keyed motion.div wrapper — soft rise+fade (0.3s, easeOut cubic [0.22,1,0.36,1]) replays on every view switch
+  2. Nav sliding pills (app-shell.tsx): framer-motion layoutId "sekretir-desktop-nav-pill" (amber pill slides between desktop nav items) + "sekretir-mobile-nav-pill" (top indicator slides on bottom bar); active icon scale-110
+  3. Tasks polish: priority edge strip (absolute inset-y-2 start-0 w-1, color = PRIORITY_META.dot; overdue→rose unless URGENT; done→emerald), filter chips now show live counts (filterCounts memo: all/today/overdue/done), checkbox pop (animate-check-pop keyframe in globals.css, cubic-bezier overshoot)
+  4. Finance donut (new donut-chart.tsx): SVG stroke-dasharray donut, CATEGORY_COLORS map (FOOD amber, TRANSPORT teal, EDUCATION violet, PROJECTS orange, BILLS yellow, SHOPPING pink, ENTERTAINMENT cyan, OTHER stone), hover grows stroke (CSS .sekretir-donut-seg), center = إجمالي/monthSpent; legend list gained matching color dots + share %; layout flex-col sm:flex-row (donut centered on mobile)
+  5. Calendar now-line (calendar-view.tsx): NowDivider (pulsing rose dot + gradient line + "دلوقتي HH:MM" chip) inserted into today's day agenda at the correct index (first occurrence starting after Cairo-now); current slot gets ring-rose-200; nowTick interval 60s; new helper cairoNowMinutes() in date-utils
+  6. Chat user avatar (assistant-view.tsx): userName prop (passed from page.tsx), amber gradient circle with name initial beside user bubbles (mirrors bot avatar)
+  7. EmptyRobot (new empty-robot.tsx): inline SVG robot — floating animation (sekretir-float), blinking eyes (SMIL animate), waving-hand bubble; replaced emoji empty states in tasks + projects views
+- globals.css: added sekretir-check-pop, .sekretir-donut-seg, sekretir-float keyframes/classes
+
+Stage Summary:
+- VERIFIED E2E in browser: tasks chips show "الكل 12/التواريخ 2/خلصت 6" + colored strips; donut renders desktop (side) + mobile (stacked) with correct 66/24/10% split and center total 760ج; now-line "دلوقتي 20:34" sits exactly between past/current slots; user avatar "م" shows on sent message; fresh-account QA (registered ui-test-*@test.com) confirmed EmptyRobot on المهام + المشاريع; dark mode + mobile re-checked
+- lint + tsc clean (app code); dev.log clean
+- Files: page.tsx, app-shell.tsx, tasks-view.tsx, finance-view.tsx, calendar-view.tsx, assistant-view.tsx, projects-view.tsx, globals.css, date-utils.ts, NEW: empty-robot.tsx, donut-chart.tsx
+- QA artifacts: download/ui-v2-*.png (home/tasks/finance/donut x3/calendar/assistant/chat-user/mobile-finance/mobile-donut/dark-calendar/empty-robot/empty-projects/final-home)
+- Notes: test account ui-test-*@test.com/test1234 remains in DB (isolated, zero data) for future empty-state QA; nav pill layoutId requires framer-motion (already a dep)
+- Next round ideas: per-item highlight after search deep-link; TTS Arabic voice comparison; PWA shell; streak sparkline on home; sliding pill for settings gear state

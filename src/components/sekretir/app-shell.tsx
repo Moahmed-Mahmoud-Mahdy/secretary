@@ -1,5 +1,6 @@
 'use client';
 
+import { motion } from 'framer-motion';
 import {
   BotMessageSquare,
   CalendarDays,
@@ -83,14 +84,20 @@ export function AppShell({ user, view, onNavigate, onLogout, refreshKey, onOpenS
                   onClick={() => onNavigate(item.id)}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors',
-                    active
-                      ? 'bg-amber-600 text-white shadow-sm'
-                      : 'text-stone-600 hover:text-amber-700 hover:bg-amber-50'
+                    'relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors',
+                    active ? 'text-white' : 'text-stone-600 hover:text-amber-700 hover:bg-amber-50'
                   )}
                 >
-                  <Icon className="size-4" />
-                  {item.label}
+                  {active ? (
+                    <motion.span
+                      layoutId="sekretir-desktop-nav-pill"
+                      className="absolute inset-0 rounded-full bg-amber-600 shadow-sm"
+                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                      aria-hidden
+                    />
+                  ) : null}
+                  <Icon className="relative z-10 size-4" />
+                  <span className="relative z-10">{item.label}</span>
                 </button>
               );
             })}
@@ -189,15 +196,20 @@ export function AppShell({ user, view, onNavigate, onLogout, refreshKey, onOpenS
                 onClick={() => onNavigate(item.id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex flex-col items-center justify-center gap-0.5 py-2 min-h-[44px] text-[10px] font-semibold transition-colors',
+                  'relative flex flex-col items-center justify-center gap-0.5 py-2 min-h-[44px] text-[10px] font-semibold transition-colors',
                   active ? 'text-amber-700' : 'text-stone-400'
                 )}
               >
-                <Icon className={cn('size-5', active && 'text-amber-600')} />
-                {item.label}
                 {active ? (
-                  <span className="absolute top-0 w-8 h-0.5 rounded-full bg-amber-600" aria-hidden />
+                  <motion.span
+                    layoutId="sekretir-mobile-nav-pill"
+                    className="absolute top-0 h-0.5 w-8 rounded-full bg-amber-600"
+                    transition={{ type: 'spring', stiffness: 480, damping: 36 }}
+                    aria-hidden
+                  />
                 ) : null}
+                <Icon className={cn('relative z-10 size-5 transition-transform', active && 'scale-110')} />
+                <span className="relative z-10">{item.label}</span>
               </button>
             );
           })}
