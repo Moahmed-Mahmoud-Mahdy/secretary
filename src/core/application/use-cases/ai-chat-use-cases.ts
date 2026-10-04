@@ -325,7 +325,25 @@ export class AiChatUseCases {
         let summary = `أجّلت «${updated.title}» لـ ${relativeDayArabic(newDeadline, nowWall())}`;
         if (hh && mm) summary += ` الساعة ${fmtHHMM(newDeadline)}`;
         if (removed > 0) {
-          summary += ` — وشلت ${removed === 1 ? 'موضعها القديم' : `${removed} مواضع قديمة ليها`} من الخطة. لو عايزني أحطها في يوم جديد قول «نظملي يومي»`;
+          summary += ` — وشلت ${removed === 1 ? 'موضعها القديم' : `${removed} مواضع قديمة ليها`} من الخطة`;
+        }
+        // Auto-slot the task into the target day's free gap (BRD §14) —
+        // only this task moves, the rest of the day's plan stays untouched.
+        // An explicit time ("الساعة 5") pins the slot at that hour when free;
+        // otherwise the nearest gap after it (waking window 08:00 → 23:00).
+        try {
+          const pinStart = hh && mm ? parseWallIso(`${toDate}T${hh}:${mm}:00`) : null;
+          const slot = await this.planningUseCases.scheduleTaskInDay(userId, task.id, toDate, {
+            pinnedStart: pinStart,
+          });
+          if (slot) {
+            const slotStart = parseWallIso(slot.startAt);
+            summary += ` — وحطّيتها في خطة ${relativeDayArabic(slotStart, nowWall())} الساعة ${fmtHHMM(slotStart)}`;
+          } else {
+            summary += ' — مفيش وقت فاضي في اليوم ده يستحملها، لما تفضى قول «نظملي» تاني';
+          }
+        } catch {
+          // planning is best-effort — postponement already succeeded
         }
         executed.push({ type: 'TASK', action: 'EXECUTED', summary, refId: task.id });
         return;

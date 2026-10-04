@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import confetti from 'canvas-confetti';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -120,6 +121,35 @@ function weekStartKey(key: string): string {
   const ms = Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)));
   const offset = new Date(ms).getUTCDay(); // 0=Sunday
   return addDaysKey(key, -offset);
+}
+
+/**
+ * Celebration burst on habit check-in (BRD §16) — amber/emerald palette,
+ * particle count scales with the streak so milestones feel bigger.
+ */
+function celebrateStreak(streak: number): void {
+  if (typeof window === 'undefined') return;
+  const intensity = Math.min(5, 1 + Math.floor(streak / 3));
+  const colors = ['#f59e0b', '#fbbf24', '#fde68a', '#10b981', '#6ee7b7'];
+  const base = { colors, ticks: 120, gravity: 0.9, scalar: 0.9, zIndex: 9999 };
+  void confetti({
+    ...base,
+    particleCount: 40 + intensity * 20,
+    spread: 65 + intensity * 8,
+    origin: { x: 0.25, y: 0.7 },
+    angle: 60,
+  });
+  void confetti({
+    ...base,
+    particleCount: 40 + intensity * 20,
+    spread: 65 + intensity * 8,
+    origin: { x: 0.75, y: 0.7 },
+    angle: 120,
+  });
+  if (streak >= 7) {
+    // milestone week+: a golden rain from the top
+    void confetti({ ...base, particleCount: 90, spread: 100, startVelocity: 35, origin: { x: 0.5, y: 0.15 } });
+  }
 }
 
 interface CalendarViewProps {
@@ -247,9 +277,11 @@ export function CalendarView({ refreshKey, onAuthError }: CalendarViewProps) {
     setCheckinBusy(t.id);
     try {
       await endpoints.updateTask(t.id, { status: 'COMPLETED' });
+      const newStreak = t.streak > 0 ? t.streak + 1 : 1;
+      celebrateStreak(newStreak);
       toast.success(
         t.streak > 0
-          ? `برافو! سلسلة «${t.title}» وصلت ${t.streak + 1} ${streakCountLabel(t.recurrence, t.streak + 1)} 🔥`
+          ? `برافو! سلسلة «${t.title}» وصلت ${newStreak} ${streakCountLabel(t.recurrence, newStreak)} 🔥`
           : `برافو! خلصت «${t.title}» النهارده 🔥`,
         { description: 'سجلتلك الجاية في معادها' }
       );

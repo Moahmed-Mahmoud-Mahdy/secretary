@@ -19,6 +19,10 @@ import { eventOccurrenceOnDay } from '../../domain/services/recurrence';
 // re-planning when tasks were missed.
 // ============================================================
 
+/** Plannable waking window (wall-clock, Cairo): 08:00 → 23:00. */
+const PLAN_DAY_START_HOUR = 8;
+const PLAN_DAY_END_HOUR = 23;
+
 export class PlanningUseCases {
   constructor(
     private readonly tasks: ITaskRepository,
@@ -105,25 +109,48 @@ export class PlanningUseCases {
     return { start: dayKeyOf(start), days: outDays };
   }
 
-  /** (Re)generate the plan for a day — misses are re-planned, done slots are kept. */
-  async generatePlan(userId: string, dayKeyStr?: string): Promise<DayPlanDTO> {
+  /**
+   * (Re)generate the plan for a day — misses are re-planned, done slots are kept.
+   * Auto-planning fills the waking window (08:00 → 23:00). `pinned` reserves a
+   * specific interval for one task (e.g. an explicitly postponed "at 17:00") —
+   * the rest of the day is planned around it.
+   */
+  async generatePlan(
+    userId: string,
+    dayKeyStr?: string,
+    opts?: { pinned?: { taskId: string; start: Date; end: Date } }
+  ): Promise<DayPlanDTO> {
     const day = startOfDay(dayKeyStr ? parseWallIso(dayKeyStr) : nowWall());
     const now = nowWall();
-    const dayStart = day;
     const dayEnd = endOfDay(day);
+    const planStart = new Date(day.getTime() + PLAN_DAY_START_HOUR * 3_600_000);
+    const planEnd = new Date(day.getTime() + PLAN_DAY_END_HOUR * 3_600_000);
 
     const [tasks, events] = await Promise.all([this.tasks.listAll(userId), this.events.listAll(userId)]);
-
-    // Existing DONE slots stay put; everything else gets rebuilt.
-    const existingSlots = await this.plans.listSlotsForDay(userId, dayStart, dayEnd);
-    const doneSlots = existingSlots.filter((s) => s.status === 'DONE');
-    const doneTaskIds = new Set(doneSlots.map((s) => s.taskId));
 
     // Fixed-event occurrences for the day are immovable (BRD §15).
     const busy = events
       .map((e) => eventOccurrenceOnDay(e, day))
       .filter((occ): occ is NonNullable<typeof occ> => occ !== null)
       .map((occ) => ({ start: occ.start, end: occ.end ?? new Date(occ.start.getTime() + 60 * 60_000) }));
+
+    // A pinned interval is honoured only when it lands inside the day and
+    // doesn't collide with a fixed event — otherwise we fall back to regular
+    // planning and let the greedy planner find a gap.
+    const pin = opts?.pinned;
+    const pinValid =
+      pin !== undefined &&
+      pin.start >= day &&
+      pin.end <= dayEnd &&
+      pin.start >= new Date(Math.max(day.getTime(), Math.min(now.getTime(), dayEnd.getTime()))) &&
+      !busy.some((b) => pin.start < b.end && pin.end > b.start);
+
+    if (pinValid && pin) busy.push({ start: pin.start, end: pin.end });
+
+    // Existing DONE slots stay put; everything else gets rebuilt.
+    const existingSlots = await this.plans.listSlotsForDay(userId, day, dayEnd);
+    const doneSlots = existingSlots.filter((s) => s.status === 'DONE');
+    const doneTaskIds = new Set(doneSlots.map((s) => s.taskId));
     for (const done of doneSlots) busy.push({ start: done.startAt, end: done.endAt });
 
     const openTasks = tasks.filter(
@@ -131,12 +158,13 @@ export class PlanningUseCases {
         t.parentId === null &&
         (t.status === 'TODO' || t.status === 'IN_PROGRESS') &&
         !doneTaskIds.has(t.id) &&
+        !(pinValid && pin && t.id === pin.taskId) &&
         this.fitsDay(t, day)
     );
 
     const plan = generateDayPlan({
-      dayStart,
-      dayEnd,
+      dayStart: planStart,
+      dayEnd: planEnd,
       now,
       busy,
       tasks: openTasks.map((t) => ({
@@ -150,11 +178,91 @@ export class PlanningUseCases {
 
     await this.plans.replaceDaySlots(
       userId,
-      dayStart,
-      plan.slots.map((s) => ({ taskId: s.taskId, startAt: s.start, endAt: s.end }))
+      day,
+      [
+        ...plan.slots.map((s) => ({ taskId: s.taskId, startAt: s.start, endAt: s.end })),
+        ...(pinValid && pin ? [{ taskId: pin.taskId, startAt: pin.start, endAt: pin.end }] : []),
+      ]
     );
 
     return this.getDayPlan(userId, dayKeyOf(day));
+  }
+
+  /**
+   * Schedule ONE task into the target day without touching the rest of the
+   * plan (used by POSTPONE — predictable, no side effects on other slots).
+   * Prefers the pinned start when given (and free), otherwise the first gap
+   * after it / in the waking window 08:00 → 23:00. Returns the created slot
+   * or null when the day has no room.
+   */
+  async scheduleTaskInDay(
+    userId: string,
+    taskId: string,
+    dayKeyStr: string,
+    opts?: { pinnedStart?: Date | null }
+  ): Promise<PlanSlotDTO | null> {
+    const day = startOfDay(parseWallIso(dayKeyStr));
+    const dayEnd = endOfDay(day);
+    const now = nowWall();
+    const planStart = new Date(day.getTime() + PLAN_DAY_START_HOUR * 3_600_000);
+    const planEnd = new Date(day.getTime() + PLAN_DAY_END_HOUR * 3_600_000);
+
+    const tasks = await this.tasks.listAll(userId);
+    const task = tasks.find((t) => t.id === taskId && t.parentId === null);
+    if (!task || (task.status !== 'TODO' && task.status !== 'IN_PROGRESS')) return null;
+
+    const durationMin = Math.min(Math.max(task.estimatedMinutes ?? 45, 15), 240);
+    const durationMs = durationMin * 60_000;
+    // Earliest auto-plannable moment: now (today) or 08:00 (future days).
+    const earliest = new Date(Math.max(planStart.getTime(), Math.min(now.getTime(), planEnd.getTime())));
+
+    const events = await this.events.listAll(userId);
+    const busy: { start: Date; end: Date }[] = events
+      .map((e) => eventOccurrenceOnDay(e, day))
+      .filter((occ): occ is NonNullable<typeof occ> => occ !== null)
+      .map((occ) => ({ start: occ.start, end: occ.end ?? new Date(occ.start.getTime() + 60 * 60_000) }));
+
+    const slots = await this.plans.listSlotsForDay(userId, day, dayEnd);
+    for (const s of slots) {
+      if (s.status === 'PLANNED' || s.status === 'DONE') busy.push({ start: s.startAt, end: s.endAt });
+    }
+
+    const overlaps = (start: Date, end: Date): boolean =>
+      busy.some((b) => start < b.end && end > b.start);
+
+    const pin = opts?.pinnedStart ?? null;
+    let chosen: { start: Date; end: Date } | null = null;
+
+    // 1) Honour an explicit requested hour when it's inside the day and free.
+    if (pin) {
+      const pinEnd = new Date(pin.getTime() + durationMs);
+      const floor = new Date(Math.max(day.getTime(), Math.min(now.getTime(), dayEnd.getTime())));
+      if (pin >= floor && pinEnd <= dayEnd && !overlaps(pin, pinEnd)) {
+        chosen = { start: pin, end: pinEnd };
+      }
+    }
+
+    // 2) First-fit: next free gap (after the requested hour when pinned).
+    if (!chosen) {
+      const cursor = pin && pin > earliest ? pin : earliest;
+      const sortedBusy = [...busy].sort((a, b) => a.start.getTime() - b.start.getTime());
+      let point = cursor.getTime();
+      for (const b of sortedBusy) {
+        if (b.end.getTime() <= point) continue;
+        if (b.start.getTime() - point >= durationMs && point + durationMs <= planEnd.getTime()) {
+          chosen = { start: new Date(point), end: new Date(point + durationMs) };
+          break;
+        }
+        if (b.end.getTime() > point) point = b.end.getTime();
+      }
+      if (!chosen && point + durationMs <= planEnd.getTime()) {
+        chosen = { start: new Date(point), end: new Date(point + durationMs) };
+      }
+    }
+
+    if (!chosen) return null;
+    const created = await this.plans.createSlot(userId, task.id, chosen.start, chosen.end);
+    return serializePlanSlot(created, task.title, task.priority, task);
   }
 
   async markSlot(userId: string, slotId: string, status: string): Promise<void> {

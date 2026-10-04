@@ -156,6 +156,8 @@ export interface IPlanRepository {
     dayStart: Date,
     slots: { taskId: string; startAt: Date; endAt: Date }[]
   ): Promise<void>;
+  /** Creates a single PLANNED slot (e.g. postponing a task into a free gap). */
+  createSlot(userId: string, taskId: string, startAt: Date, endAt: Date): Promise<PlanSlotRecord>;
   updateSlotStatus(userId: string, slotId: string, status: PlanSlotStatus): Promise<boolean>;
   /** Removes a task's open (PLANNED) slots from `from` onwards — used when a task is postponed. Returns the deleted count. */
   deleteFutureSlotsForTask(userId: string, taskId: string, from: Date): Promise<number>;

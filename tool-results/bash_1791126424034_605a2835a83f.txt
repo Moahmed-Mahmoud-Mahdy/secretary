@@ -163,7 +163,7 @@ Task: QA + new features (BRD §11/§17/§28/§43) + styling polish
 4. **TTS voice replies (BRD §43)** — سكرتير يتكلم:
    - New port `ITextToSpeechService` + `ZaiTextToSpeechService` (voice tongtong, wav, 1000-char cap) + `POST /api/ai/tts`.
    - Speaker 🔊 button on every assistant message (top corner): play/stop toggle with loading + pulse states, one-audio-at-a-time via audioRef. Verified in browser: `POST /api/ai/tts 200 in 2.8s` (712KB wav).
-5. **Styling polish [mandatory]**:
+5. **Styling polish andatory]**:
    - New `FadeIn` component (framer-motion) — staggered entrance on home greeting/AI input/cards.
    - Hover lift (`hover:shadow-md hover:-translate-y-0.5 transition-all`) applied to all cards in tasks/projects/finance/calendar/home views.
    - Example chips updated to showcase breakdown («عايز أعمل موقع تخرج»).
@@ -192,7 +192,7 @@ Task: Status assessment + browser QA + new features (time-tracking, duration-cal
    - UI: play/stop button on every open task card, live "● شغّال Xد" emerald chip (ticks every 30s), "⏱ فعلي Xد" sky chip after stop, emerald ring on tracking card. E2E verified: start → stop → actual:1 in DB + toasts.
 2. **Duration-calibration insights (BRD §17)** — `durationSamples` (last-30d completions with estimate AND tracked actual) → new rules in personalizationInsights: overall drift ≥30% (≥3 samples) → "شغلك الفعلي بياخد أكتر من تقديراتك بـ X%" (or faster ⚡); single-task outlier ≥2x estimate & ≥45min → suggests breaking it down. Wired via buildPersonalizationSnapshot.
 3. **Finance month navigation** — prev/next month pill (RTL arrows match calendar: right = back), "رجوع لحدود النهارده" chip, future months disabled, budget title shows browsed month, budget edit hidden for past months ("للعرض بس"), "النهارده" tile becomes "عدد العمليات" for past months, add-dialog dates default into browsed month (clamped day). Backend fix: dailyAverage now divides by elapsed days (current month) vs daysInMonth (past months); spentToday forced 0 outside current month. Verified September vs October data render differently and correctly.
-4. **Styling polish [mandatory]**: staggered `sekretir-rise` entrance on task/project cards; `sekretir-live-dot` soft ping for tracking chip; amber `::selection` + smooth scroll; hover-lift unified on task cards; FAB active:scale-95; emerald tracking-card ring.
+4. **Styling polish andatory]**: staggered `sekretir-rise` entrance on task/project cards; `sekretir-live-dot` soft ping for tracking chip; amber `::selection` + smooth scroll; hover-lift unified on task cards; FAB active:scale-95; emerald tracking-card ring.
 5. **Infra note**: Prisma client is externalized — after any future `db:push`, the dev server must be RESTARTED for the new client to load (HMR keeps the old require cache; symptoms: new fields undefined → e.g. isTracking:true ghosts/NaN). Fixed this round by restarting next dev + bumping db.ts global key to `__sekretirPrismaV2`.
 
 ## Unresolved issues / risks & next priorities
@@ -259,7 +259,7 @@ Task: Status assessment + browser QA + new features (category-limit notification
    - التزاماتك المالية المتكررة: upcoming recurring bills with next-due + monthly total ("500 ج/شهر").
    - Backend fix: `FinanceSummaryDTO.upcomingRecurring` now global (not month-scoped) — merges month expenses + all recurring with nextDueAt > now, deduped by id, now includes `recurrence` field. Verified: September-created internet bill (nextDueAt Oct 7) appears in October summary.
    - Seed: 2 new demo habits (أذاكر ساعة قبل النوم DAILY, أراجع مصاريفي للأسبوع WEEKLY) added; re-seeded.
-4. **Styling polish [mandatory]**:
+4. **Styling polish andatory]**:
    - Home greeting is now a hero banner: amber gradient (amber-100→orange-50→stone-50, RTL direction) with blurred glow circles, suggestion inline — verified screenshot.
    - Staggered FadeIn entrances on the three المتكرر cards; colored icon tiles (orange Flame / amber Repeat / emerald Wallet); hover states on all hub rows.
    - Expense rows: group hover amber tint + white icon tile + hover-reveal edit button.
@@ -298,101 +298,3 @@ Task: Status assessment + browser QA + new features (habit streaks, recurring-du
 7. **Seed improvements** — study habit gets 3 past completions (live 3-day streak out of the box), weekly review habit gets 1 past completion; incomes now clamped into the current Cairo month so "دخل الشهر" is never 0 after re-seed.
 
 ## Unresolved issues / risks & next priorities
-- Streak counts same-day double check-ins as 2 (acceptable simplification; each check-in counts).
-- GENERAL AI fallback payload is now heavier (includes habits) — fine for SQLite scale.
-- agent-browser ref staleness during SPA re-renders made tab clicks flaky in QA (retry with fresh snapshot works) — not an app bug.
-- Next round suggestions: dark mode; explicit transfers between categories (BRD §19); PWA offline shell; per-category month report card; habit "streak at risk" evening notification; AI natural-language reschedule ("أجل مهمة X لبكرة") already partly covered by UPDATE_TASK — expand tests; TTS voice comparison (xiaochen/kazi vs tongtong) for Arabic.
-- QA artifacts this round: download/qa-home-live-timer.png, download/qa-habits-streaks.png, download/qa-home-final.png, download/qa-week-regression.png.
----
-Task ID: cron-20261004-6
-Agent: main (Z.ai Code) — webDevReview round 6
-Task: Status assessment + browser QA + dark mode + month report card + AI MONTH_REPORT/PRODUCTIVITY queries + habit streak-at-risk alert
-
-## Current project status
-- STABLE. Full browser QA passed before feature work: all 6 views render (light), AI QUERY regression OK (real data, masculine tone), lint + tsc clean (app code), no runtime errors in dev.log. The only QA "finding" (task form time picker showing English "Hours/AM-PM" spinbuttons) is the native Chromium <input type="time"> a11y tree — not an app bug.
-- This round's data-scare was investigated and RESOLVED: home briefly showed zeros because a transient CSS parse error (see below) broke the page mid-fetch; DB verified intact (14 tasks / 3 events / 13 expenses / 2 incomes / budget 8000). Reload fixed it.
-
-## This round: completed modifications & verification
-1. **Dark mode (BRD §43 polish) — full warm-stone theme with amber accent**:
-   - next-themes (class attribute, system-aware) + inline no-flash script in layout head; body on semantic tokens; ThemeToggle (☀️/🌙) in the header next to the bell.
-   - `.dark` semantic tokens warmed (stone-950 bg / stone-900 cards / amber-600 primary) so shadcn Dialogs/Selects/Popovers/toasts follow; `color-scheme: dark` for native inputs.
-   - Unlayered CSS utility overrides in globals.css remap the concrete stone/amber/rose/emerald palette used across sekretir components (bg-white→#1c1917, text-stone-* inverted, borders → white/6-9%, amber/rose/emerald tints → color-mix-on-dark equivalents, hover variants included). Dark ::selection + dark scrollbars.
-   - Hero gradient gets explicit dark: classes (amber glow over stone-950); `bg-white/60` send-overlay darkened.
-   - Verified via screenshots: home/tasks/calendar/finance/assistant in dark + light regression (download/dark-*.png, final-light-home5.png, final-dark-home.png). Theme persists in localStorage.
-2. **Month report card (تقرير الشهر، BRD §19)** — new `report` block in FinanceSummaryDTO:
-   - projectedSpent (current month pace × days-in-month) + projectedOverBudget, deltaPct vs last month (extra prev-month expenses query), topCategory with % of spend, net saved (income−spend) + savingRatePct, verdict: on_track | watch | over | no_budget.
-   - UI: MonthReportCard between budget card and category breakdown — verdict badge (مضبوط ✅ / خلي بالك ⚠️ / عدّيت 🚨), 4 stat tiles, contextual Egyptian verdict line ("وفّرت 83% من دخلك 👏"). Works for browsed months (past months show totals instead of projection). Verified live: 5,890 projected / ▼44% vs 1,355 / فواتير 66% / وفرت 3,740.
-3. **AI MONTH_REPORT + PRODUCTIVITY query types** — full prompt + fetchQueryData support:
-   - MONTH_REPORT: "إيه تقرير الشهر؟" / "صرفي مقارنة باللي فات" → verified live ("صرفت 760 من 8000... أقل من الشهر اللي فات (1355) فرق 44% 🎉").
-   - PRODUCTIVITY: "إيه أحسن وقت بتنجز فيه؟" → peak completion hours (from 30d completedAt histogram), completions 7/14d, avg/day, estimate-vs-actual drift. Verified via curl: "خلصت من 9 مهام في اسبوعين... أوقات 5 و10 مساءً 🕔". Report also included in FINANCE_SUMMARY/BUDGET_STATUS payloads. Home example chip updated to «إيه تقرير الشهر؟».
-4. **Habit streak-at-risk evening notification (BRD §16/§28)** — new HABIT_REMINDER type + 🔥 bell icon:
-   - At Cairo hour ≥ 20:00, for each open recurring habit with an ALIVE streak ≥ 2 that is due today and not yet checked in → "سلسلتك في خطر! 🔥 «...» لسه ما سجلتهاش وسلسلتك (يومين) ممكن تقع". Deduped per habit/day (refKey habitrisk-{id}-{day}); Arabic dual/plural grammar handled (يومين/أيام/يوم).
-   - E2E verified with a synthetic habit (streak 2, due today, unchecked) and a temporarily lowered threshold → notification fired with correct title/body; threshold restored to 20:00 and test data cleaned (3 tasks + 1 notification removed, verified).
-
-## Unresolved issues / risks & next priorities
-- Dark coverage is override-based: any NEW hardcoded light utility in sekretir components (e.g. a new bg-emerald-700 or border-teal-*) may need a matching .dark override — audit visually when adding features. (Semantic-token usage is already covered.)
-- PRODUCTIVITY routing is LLM-nondeterministic — occasionally falls back to GENERAL (which answers reasonably from schedule data). Rule 18 could be strengthened further if drift is observed.
-- Streak-at-risk only fires for habits due TODAY; a WEEKLY habit due mid-week never gets the evening nudge (by design).
-- Next round suggestions: category-to-category transfers (BRD §19); PWA offline shell (service worker + manifest theme dark variant); per-category month report drill-down; TTS voice comparison (xiaochen/kazi vs tongtong) for Arabic; AI natural-language reschedule ("أجل مهمة X لبكرة") as dedicated POSTPONE action; budget copy auto-suggestion insight when new month starts.
-- QA artifacts: download/dark-home.png, dark-tasks.png, dark-finance2/3.png, dark-calendar.png, dark-assistant.png, light-finance.png, final-light-home5.png, final-dark-home.png.
-
----
-Task ID: cron-20261004-7
-Agent: main (Z.ai Code) — webDevReview round 7
-Task: Status assessment + browser QA + new features (AI POSTPONE, category transfers, no-budget insight) + styling
-
-## Current project status
-- STABLE. Pre-work baseline QA (agent-browser + lint + tsc) passed: home renders (evening greeting, hero suggestion), lint clean, tsc clean for app code (remaining tsc errors are only in external examples/ and skills/ folders — not app code). No new runtime errors in dev.log (the historical globals.css parse errors in the log predate this session; all recent requests 200).
-
-## This round: completed modifications & verification
-1. **AI POSTPONE action (BRD §6/§13 — natural-language rescheduling)** — full stack:
-   - Domain: IPlanRepository.`deleteFutureSlotsForTask(userId, taskId, from)` + Prisma impl (deletes PLANNED slots with startAt >= from).
-   - Enums: POSTPONE intent + POSTPONE/TRANSFER_BUDGET added to AI_ACTION_TYPES.
-   - Prompt: action schema {"type":"POSTPONE","taskName","toDate","toTime":null|"HH:mm"} + rule 19 (أجل/أخّر/أورّح مهمة موجودة → POSTPONE; new tasks still CREATE_TASK).
-   - Handler: matches task (fuzzy Arabic), updates deadline (toDate @ toTime or 23:59:59), then unschedules ALL of the task's open PLANNED slots.
-   - **Bug found & fixed during E2E**: initially deleted only slots with startAt >= now — a stale earlier-today slot (17:40, already past) survived the postponement. Changed to pass epoch → ALL open slots removed. Verified: today plan went 4 → 3 slots and the reply mentions the removal + suggests «نظملي يومي».
-   - E2E verified twice: "أجل مهمة أجيب هدية عيد ميلاد أخويا لبعد بكرة الساعة 6 مساءً" → deadline 2026-10-08→2026-10-06T18:00, old slot removed; "أجل مذاكرة ساعة قبل النوم لبكرة الساعة 10 مساءً" → 2026-10-05T22:00 + stale 17:40 slot deleted. Demo data restored afterwards (deadlines PATCHed back, day replanned via نظملي يومي — PLAN_DAY regression passed, 6 slots).
-2. **Category transfers (BRD §19)** — full stack:
-   - Application: FinanceUseCases.`transferCategoryBudget(userId, from, to, amount, monthKey?)` — validates distinct categories, source limit exists, result >= 0 (Arabic errors: "لازم تختار فئتين مختلفتين" / "مفيش حد صرف متظبط على الفئة دي أصلاً" / "حد الفئة مش كفاية — المتبقي X ج بس").
-   - API: POST /api/budget/transfer {from, to, amount, month?}. Edge cases curl-verified (same category → error; missing source limit → error; valid → returns new limits).
-   - AI: new action TRANSFER_BUDGET (rule 20: "حول 100 من حد الأكل لحد المواصلات" → TRANSFER_BUDGET; "زود حد X" بدون مصدر → SET_CATEGORY_BUDGET). Verified live: FOOD 1200→1100, TRANSPORT 400→500.
-   - UI: "حوّل" button in حدود الفئات header (current month + has limits) → Dialog (من فئة = limited categories, لفئة = all others excluding source, amount, live emerald/rose preview "حد أكل وشرب هيبقى 1150 ج — وحد ترفيه هيبقى 50 ج", submit disabled until valid). E2E via browser: FOOD→ENTERTAINMENT 50 → toast + new ترفيه row + FOOD progress updated; reverted via API + limit removed. Radix Selects need click-interaction (agent-browser select doesn't work on them — noted for future QA).
-3. **New-month no-budget SUGGESTION insight** — financeInsights now emits SUGGESTION "الشهر ده لسه من غير ميزانية!..." when monthlyBudget null (dashboard feed; complements the existing copy-last-month chip in finance view).
-4. **Assistant styling [mandatory]**: quick-prompt chips under welcome (نظملي يومي / قد إيه صرفت الشهر ده؟ / إيه مهامي اللي فاضلة؟ / إيه عاداتي وسلسلتي؟ — click-to-send, amber pills, hidden once conversation starts); per-message HH:MM timestamps (TimeTag, shown for new messages); user bubble upgraded to amber gradient (amber-500→600) with shadow; assistant bubble hover (shadow + amber border); TTS button hover scale-110; ACTION_ICON map extended (POSTPONE ⏩, TRANSFER_BUDGET 🔁, SET_CATEGORY_BUDGET 🎯, CREATE_PROJECT_WITH_TASKS 🗂️, ADD_SUBTASKS 🪄, UPDATE_EXPENSE/UPDATE_INCOME ✏️/💵).
-5. QA artifacts: download/qa-round7-*.png (baseline home, assistant chips, assistant chat with timestamps, transfer dialog, limits after transfer, finance light, home light). Demo data restored to seed state (limits BILLS 600 / TRANSPORT 400 / FOOD 1200, original deadlines, fresh today plan).
-
-## Unresolved issues / risks & next priorities
-- POSTPONE removes slots but does NOT auto-slot the task into the target day (reply suggests «نظملي يومي») — predictable-by-design; could auto-regenerate target-day plan later if desired.
-- Transfer previews/validates against the limit ceiling (not remaining budget room) — matches backend rule.
-- Chat timestamps only appear for messages sent after this deploy (old localStorage messages have no `at`).
-- agent-browser `select` command doesn't work on Radix Select — must click trigger + option in future QA.
-- Next round suggestions: auto-slot postponed task into target day free gap; per-category month report drill-down; TTS voice comparison for Arabic; PWA service worker (offline shell); budget auto-copy prompt notification on new month (backend REMINDER on month rollover); streak "caught up" celebration animation.
-
----
-Task ID: cron-20261004-6
-Agent: main (Z.ai Code) — webDevReview round 6 (worklog round 8)
-Task: Status assessment + browser QA + new features (category drill-down report, postpone auto-slot + planner window fix, streak celebration confetti) + styling
-
-## Current project status
-- STABLE. Full browser QA passed (agent-browser): dark mode complete across all 6 views (home hero/calendar/finance/assistant/tasks/projects all remap correctly via globals.css overrides — dark mode was evidently finished after round 7 without being logged), AI regression OK (QUERY + POSTPONE with real data, Egyptian masculine tone), notifications bell populated correctly, lint + tsc clean (app code), no runtime errors in dev.log (only transient Fast-Refresh reloads from mid-edit saves).
-
-## This round: completed modifications & verification
-1. **Per-category drill-down report (BRD §19)** — finance "صرفت في إيه؟" rows are now buttons (hover amber tint + chevron affordance + focus-visible ring) opening a rich report Dialog computed client-side from summary.expenses (no new API needed):
-   - 3 stat tiles (الإجمالي amber / من صرف الشهر % / عدد المصاريف), per-category limit progress row (فاضل X ج / عدّيت بـ X ج, emerald/amber/rose), day-by-day mini bar chart (amber bars, rose when over limit, per-day amount labels + title tooltips), scrollable transaction list with "أكبر مصروف" badge on the largest expense; empty state for categories with no spend. Works in dark mode (verified screenshot).
-   - Verified E2E: FOOD (185 ج, 24%, حد 1,200 فاضل 1,015, bars 03:120/04:65) and TRANSPORT (75 ج, 10%, حد 400) match DB exactly.
-2. **POSTPONE auto-slot (BRD §13/§14) + two planner fixes** — postponing via AI now lands the task in the target day immediately:
-   - NEW `PlanningUseCases.scheduleTaskInDay(userId, taskId, dayKey, {pinnedStart})`: schedules ONLY the postponed task (first-fit gap in waking window 08:00→23:00, respecting fixed events + existing slots); an explicit requested hour ("الساعة 6") pins the slot exactly there when free, else the nearest gap after it. No day-wide rebuild — other slots untouched (predictable).
-   - NEW `IPlanRepository.createSlot` (+ Prisma impl, wall-clock day bucket).
-   - FIX (bug exposed by the feature): `generatePlan` planned future days from **00:00 midnight** — auto-planning window is now **08:00→23:00** (matching the app's own 15*60 dayMinutes assumption); explicit pins still honoured from 00:00 floor (user's explicit choice), past pins fall back to first-fit.
-   - AI POSTPONE reply now says "وحطّيتها في خطة بكرة الساعة 18:00" (or "مفيش وقت فاضي في اليوم ده يستحملها"). Verified E2E twice: pinned 18:00 → exactly one slot 18:00-18:45 tomorrow (no midnight junk, no displaced tasks); today's plan regenerated from current time.
-3. **Streak celebration (BRD §16)** — `celebrateStreak()` (canvas-confetti, new dep): twin amber/emerald bursts from both bottom corners on every habit check-in, particle count scales with streak (intensity tiers by /3), golden-rain top burst at streak ≥7. Fired with the existing streak toast. Verified E2E: check-in → streak 4→5 + toast "برافو! سلسلة «أذاكر ساعة قبل النوم» وصلت 5 أيام 🔥" + confetti, no console errors.
-4. QA artifacts: download/qa-round8-drilldown.png (light), qa-round8-drilldown-dark.png (dark), qa-round8-streak-after.png, qa-round8-final-home.png (+ earlier qa-dark-*.png for all 6 dark views).
-
-## Data hygiene this round
-- Postpone-test artifacts reverted; leftover midnight slots deleted; **demo data re-seeded** at end of round (habit chains had drifted from repeated QA check-ins across rounds 5-7: duplicate materialized instances). Fresh state: study habit streak 3 due today 23:00, plan 18:30→22:50, budget 8,000, limits FOOD 1,200 / TRANSPORT 400 / BILLS 600. NOTE: re-seed invalidates old sessions (login page shows — correct behavior).
-
-## Unresolved issues / risks & next priorities
-- `generatePlan` full-day rebuild remains available via «نظملي يومي» — it now uses the 08:00→23:00 window, but filling a future day with ALL open tasks is by design (explicit user request).
-- Habit check-in marks the task COMPLETED and materializes the next instance — if a user checks in twice quickly (or double-clicks), the guard is `checkinBusy` UI-only; server-side double-materialization is possible but low risk.
-- agent-browser can't capture mid-animation confetti in a static screenshot (function verified by execution + absence of errors).
-- Next round suggestions: per-task timer on assistant quick actions; PWA offline shell; TTS Arabic voice comparison; budget auto-copy backend REMINDER on month rollover; weekly plan "أسبوع الجاي" quick-jump chips; notification center grouping by day.

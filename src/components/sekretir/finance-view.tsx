@@ -12,6 +12,7 @@ import {
   Pencil,
   PiggyBank,
   Plus,
+  Receipt,
   Repeat,
   Target,
   Trash2,
@@ -108,6 +109,9 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
   // copy last month's budget shortcut
   const [lastMonthBudget, setLastMonthBudget] = useState(0);
   const [copyingBudget, setCopyingBudget] = useState(false);
+
+  // per-category drill-down report (BRD §19)
+  const [drillCategory, setDrillCategory] = useState<ExpenseCategory | null>(null);
 
   const [month, setMonth] = useState(todayKey().slice(0, 7));
   const currentMonth = todayKey().slice(0, 7);
@@ -560,41 +564,51 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
       {summary && summary.byCategory.length > 0 ? (
         <Card className="bg-white border border-stone-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="p-4 sm:p-5">
-            <h2 className="font-bold text-stone-800 mb-3">صرفت في إيه؟</h2>
-            <ul className="space-y-3">
+            <h2 className="font-bold text-stone-800 mb-1">صرفت في إيه؟</h2>
+            <p className="text-[11px] text-stone-400 mb-3">دوس على أي فئة تشوف تقريرها بالتفصيل</p>
+            <ul className="space-y-1.5">
               {summary.byCategory.map((c) => {
                 const meta = CATEGORY_META[c.category];
                 const limit = summary.categoryLimits.find((cl) => cl.category === c.category);
                 return (
                   <li key={c.category}>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-semibold text-stone-600">
-                        {meta.icon} {meta.label}
-                        {limit ? (
-                          <span className="text-[10px] text-stone-400 font-normal"> (حد {fmtMoney(limit.limit)} ج)</span>
-                        ) : null}
-                      </span>
-                      <span
-                        className={cn(
-                          'font-bold tabular-nums',
-                          limit && limit.over ? 'text-rose-600' : 'text-stone-700'
-                        )}
-                      >
-                        {fmtMoney(c.total)} ج
-                      </span>
-                    </div>
-                    <SekretirProgress
-                      value={(c.total / maxCat) * 100}
-                      className="h-2"
-                      barClassName={
-                        limit && limit.over
-                          ? 'bg-rose-500'
-                          : c.category === 'FOOD'
-                            ? 'bg-amber-500'
-                            : 'bg-stone-400'
-                      }
-                      ariaLabel={`مصاريف ${meta.label}`}
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setDrillCategory(c.category)}
+                      className="group w-full text-right rounded-xl px-2 py-1.5 -mx-2 hover:bg-amber-50/60 focus-visible:bg-amber-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 transition-colors"
+                      aria-label={`تقرير فئة ${meta.label}`}
+                    >
+                      <div className="flex items-center justify-between text-xs mb-1 gap-2">
+                        <span className="font-semibold text-stone-600 flex items-center gap-1 min-w-0">
+                          <span aria-hidden>{meta.icon}</span>
+                          <span className="truncate">{meta.label}</span>
+                          {limit ? (
+                            <span className="text-[10px] text-stone-400 font-normal"> (حد {fmtMoney(limit.limit)} ج)</span>
+                          ) : null}
+                          <ChevronLeft className="size-3 text-stone-300 group-hover:text-amber-600 transition-colors shrink-0" aria-hidden />
+                        </span>
+                        <span
+                          className={cn(
+                            'font-bold tabular-nums shrink-0',
+                            limit && limit.over ? 'text-rose-600' : 'text-stone-700'
+                          )}
+                        >
+                          {fmtMoney(c.total)} ج
+                        </span>
+                      </div>
+                      <SekretirProgress
+                        value={(c.total / maxCat) * 100}
+                        className="h-2"
+                        barClassName={
+                          limit && limit.over
+                            ? 'bg-rose-500'
+                            : c.category === 'FOOD'
+                              ? 'bg-amber-500'
+                              : 'bg-stone-400'
+                        }
+                        ariaLabel={`مصاريف ${meta.label}`}
+                      />
+                    </button>
                   </li>
                 );
               })}
@@ -840,6 +854,140 @@ export function FinanceView({ refreshKey, onAuthError }: FinanceViewProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Per-category drill-down report (BRD §19) */}
+      {summary && drillCategory ? (
+        (() => {
+          const meta = CATEGORY_META[drillCategory];
+          const tx = summary.expenses
+            .filter((e) => e.category === drillCategory)
+            .sort((a, b) => b.date.localeCompare(a.date));
+          const total = tx.reduce((s, e) => s + e.amount, 0);
+          const biggest = tx.reduce<ExpenseDTO | null>((m, e) => (!m || e.amount > m.amount ? e : m), null);
+          const pctOfSpend = summary.monthSpent > 0 ? Math.round((total / summary.monthSpent) * 100) : 0;
+          const limit = summary.categoryLimits.find((cl) => cl.category === drillCategory);
+          // daily mini-bars (only days that had spend in this category)
+          const dayMap = new Map<string, number>();
+          for (const e of tx) {
+            const key = e.date.slice(0, 10);
+            dayMap.set(key, (dayMap.get(key) ?? 0) + e.amount);
+          }
+          const days = [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+          const maxDay = Math.max(1, ...days.map(([, v]) => v));
+          return (
+            <Dialog open onOpenChange={(o) => !o && setDrillCategory(null)}>
+              <DialogContent className="sm:max-w-md bg-white border border-stone-200 rounded-2xl max-h-[85vh] overflow-y-auto sekretir-scroll" dir="rtl">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-lg">
+                    <span className="size-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-xl shrink-0" aria-hidden>
+                      {meta.icon}
+                    </span>
+                    <span>
+                      تقرير {meta.label}
+                      <span className="block text-xs font-normal text-stone-400 mt-0.5">{monthLabel(month)}</span>
+                    </span>
+                  </DialogTitle>
+                  <DialogDescription className="sr-only">تفاصيل مصاريف الفئة الشهر ده</DialogDescription>
+                </DialogHeader>
+
+                {/* stat tiles */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-xl bg-amber-50/60 border border-amber-100 px-2.5 py-2 text-center">
+                    <p className="text-[10px] text-stone-500 mb-0.5">الإجمالي</p>
+                    <p className="text-sm font-extrabold text-amber-700 tabular-nums">{fmtMoney(total)} ج</p>
+                  </div>
+                  <div className="rounded-xl bg-stone-50 border border-stone-100 px-2.5 py-2 text-center">
+                    <p className="text-[10px] text-stone-500 mb-0.5">من صرف الشهر</p>
+                    <p className="text-sm font-extrabold text-stone-700 tabular-nums">{pctOfSpend}%</p>
+                  </div>
+                  <div className="rounded-xl bg-stone-50 border border-stone-100 px-2.5 py-2 text-center">
+                    <p className="text-[10px] text-stone-500 mb-0.5">عدد المصاريف</p>
+                    <p className="text-sm font-extrabold text-stone-700 tabular-nums">{tx.length}</p>
+                  </div>
+                </div>
+
+                {/* limit progress */}
+                {limit ? (
+                  <div className="rounded-xl border border-stone-100 bg-stone-50/60 px-3 py-2.5">
+                    <div className="flex items-center justify-between text-[11px] mb-1.5">
+                      <span className="text-stone-500 font-semibold">حد الفئة: {fmtMoney(limit.limit)} ج</span>
+                      <span className={cn('font-bold tabular-nums', limit.over ? 'text-rose-600' : 'text-emerald-700')}>
+                        {limit.over ? `عدّيت بـ ${fmtMoney(limit.spent - limit.limit)} ج` : `فاضل ${fmtMoney(limit.limit - limit.spent)} ج`}
+                      </span>
+                    </div>
+                    <SekretirProgress
+                      value={limit.pct}
+                      className="h-2"
+                      barClassName={limit.over ? 'bg-rose-500' : limit.pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}
+                      ariaLabel={`حد ${meta.label}`}
+                    />
+                  </div>
+                ) : null}
+
+                {/* daily mini-bars */}
+                {days.length > 0 ? (
+                  <div>
+                    <p className="text-[11px] font-semibold text-stone-500 mb-1.5 flex items-center gap-1">
+                      <BarChart3 className="size-3.5 text-amber-600" aria-hidden />
+                      الصرف يوم بيوم
+                    </p>
+                    <div className="flex items-end gap-1 h-16" role="img" aria-label={`الصرف اليومي لفئة ${meta.label}`}>
+                      {days.map(([day, amt]) => (
+                        <div key={day} className="flex-1 flex flex-col items-center justify-end gap-0.5 min-w-0">
+                          <span className="text-[8px] text-stone-400 tabular-nums">{fmtMoney(amt)}</span>
+                          <div
+                            className={cn('w-full rounded-t-md', limit && limit.over ? 'bg-rose-400' : 'bg-amber-400')}
+                            style={{ height: `${Math.max(8, (amt / maxDay) * 44)}px` }}
+                            title={`${day}: ${fmtMoney(amt)} ج`}
+                          />
+                          <span className="text-[8px] text-stone-400 tabular-nums">{day.slice(8)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* transactions */}
+                <div>
+                  <p className="text-[11px] font-semibold text-stone-500 mb-1.5 flex items-center gap-1">
+                    <Receipt className="size-3.5 text-amber-600" aria-hidden />
+                    المصاريف
+                  </p>
+                  {tx.length > 0 ? (
+                    <ul className="rounded-xl border border-stone-100 divide-y divide-stone-50 max-h-56 overflow-y-auto sekretir-scroll">
+                      {tx.map((e) => (
+                        <li key={e.id} className="flex items-center gap-2.5 px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-stone-800 truncate">
+                              {e.description || meta.label}
+                            </p>
+                            <p className="text-[10px] text-stone-400">
+                              {fmtDayMonth(e.date)}
+                              {e.isRecurring ? ' • 🔁 متكرر' : ''}
+                            </p>
+                          </div>
+                          {biggest && e.id === biggest.id && tx.length > 1 ? (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0">
+                              أكبر مصروف
+                            </span>
+                          ) : null}
+                          <span className="text-xs font-extrabold text-rose-600 tabular-nums shrink-0">
+                            −{fmtMoney(e.amount)} ج
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="rounded-xl border border-stone-100 bg-stone-50/60 py-6 text-center text-xs text-stone-400">
+                      مفيش مصاريف في الفئة دي الشهر ده
+                    </p>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+          );
+        })()
+      ) : null}
 
       {/* Upcoming recurring */}
       {summary && summary.upcomingRecurring.length > 0 ? (

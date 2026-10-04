@@ -49,6 +49,15 @@ export class PrismaPlanRepository implements IPlanRepository {
     ]);
   }
 
+  /** Creates a single PLANNED slot (e.g. postponing a task into a free gap). */
+  async createSlot(userId: string, taskId: string, startAt: Date, endAt: Date): Promise<PlanSlotRecord> {
+    const day = new Date(Date.UTC(startAt.getUTCFullYear(), startAt.getUTCMonth(), startAt.getUTCDate()));
+    const created = await this.db.planSlot.create({
+      data: { userId, taskId, startAt, endAt, date: day, status: 'PLANNED' },
+    });
+    return this.toRecord(created);
+  }
+
   async updateSlotStatus(userId: string, slotId: string, status: PlanSlotStatus): Promise<boolean> {
     const result = await this.db.planSlot.updateMany({ where: { id: slotId, userId }, data: { status } });
     return result.count > 0;
