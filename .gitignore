@@ -1,7 +1,5 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-node_modules
+# Dependencies
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -10,45 +8,63 @@ node_modules
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# Next.js & Build outputs
 /.next/
 /out/
+/build/
+*.tsbuildinfo
+next-env.d.ts
 
-# production
-/build
+# Environment variables & Secrets
+.env
+.env.*
+!.env.example
+.z-ai-config
 
-# misc
-.DS_Store
-*.pem
+# Local Databases & SQLite
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+/db/
+/prisma/db/
 
-# debug
+# Image Files & Media (as requested)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.svg
+*.ico
+*.bmp
+*.avif
+/public/uploads/
+/public/images/
+
+# Logs & Temporary files
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-local-*
-.claude
-.z-ai-config
-*.log
 dev.log
 dev.out.log
-test
-prompt
-
 server.log
-# Skills directory
+
+# IDE & OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.pem
+
+# Test & AI scratch folders
+/coverage/
 /skills/
+/tool-results/
+/download/
+.vercel
+local-*
+.claude

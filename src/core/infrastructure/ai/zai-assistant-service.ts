@@ -1,4 +1,3 @@
-import ZAI from 'z-ai-web-dev-sdk';
 import { AiInterpretationError } from '../../domain/errors';
 import type {
   AiAction,
@@ -10,42 +9,69 @@ import type {
 } from '../../application/ports';
 
 // ============================================================
-// Gemini-class AI provider implementation (z-ai SDK) behind the
+// Google Gemini AI provider implementation behind the
 // IAiAssistantService port — swappable without touching the
 // application or domain layers (BRD §32).
 // ============================================================
 
-type ZaiClient = Awaited<ReturnType<typeof ZAI.create>>;
+async function completeGemini(messages: { role: 'user' | 'assistant'; content: string }[], apiKey: string): Promise<string> {
+  let systemPrompt = '';
+  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
 
-let clientPromise: Promise<ZaiClient> | null = null;
-
-async function getClient(): Promise<ZaiClient> {
-  if (!clientPromise) {
-    clientPromise = ZAI.create();
-  }
-  return clientPromise;
-}
-
-async function complete(messages: { role: 'user' | 'assistant'; content: string }[], retries = 2): Promise<string> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= retries; attempt += 1) {
-    try {
-      const client = await getClient();
-      const completion = await client.chat.completions.create({
-        messages,
-        thinking: { type: 'disabled' },
+  for (let i = 0; i < messages.length; i += 1) {
+    const msg = messages[i];
+    if (i === 0 && msg.role === 'assistant') {
+      systemPrompt = msg.content;
+    } else {
+      contents.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }],
       });
-      const content = completion.choices[0]?.message?.content;
-      if (!content || content.trim().length === 0) throw new Error('empty AI response');
-      return content;
-    } catch (error) {
-      lastError = error;
-      if (attempt < retries) {
-        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+    }
+  }
+
+  const payload: Record<string, unknown> = { contents };
+  if (systemPrompt) {
+    payload.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+  let lastErr: Error | null = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Gemini API error ${res.status}: ${errText}`);
+      }
+
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text || text.trim().length === 0) throw new Error('empty Gemini AI response');
+      return text;
+    } catch (err) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 600 * attempt));
       }
     }
   }
-  throw lastError instanceof Error ? lastError : new Error('AI call failed');
+
+  throw lastErr || new Error('Gemini API call failed after retries');
+}
+
+async function complete(messages: { role: 'user' | 'assistant'; content: string }[]): Promise<string> {
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+  if (!geminiKey || geminiKey.trim().length === 0) {
+    throw new Error('GEMINI_API_KEY is not configured in .env file');
+  }
+  return completeGemini(messages, geminiKey.trim());
 }
 
 function extractJson(raw: string): { intent?: string; actions?: unknown } | null {

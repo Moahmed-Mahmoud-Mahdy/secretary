@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -20,11 +20,11 @@ export function AuthScreen({ onAuthed }: AuthScreenProps) {
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'login' | 'register' | 'demo' | null>(null);
+  const [busy, setBusy] = useState<'login' | 'register' | null>(null);
 
-  async function handleLogin(email: string, password: string, mode: 'login' | 'demo') {
+  async function handleLogin(email: string, password: string) {
     setError(null);
-    setBusy(mode);
+    setBusy('login');
     try {
       const { user } = await endpoints.login(email, password);
       onAuthed(user);
@@ -89,7 +89,7 @@ export function AuthScreen({ onAuthed }: AuthScreenProps) {
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleLogin(loginEmail.trim(), loginPassword, 'login');
+                      if (e.key === 'Enter') handleLogin(loginEmail.trim(), loginPassword);
                     }}
                   />
                 </div>
@@ -103,14 +103,14 @@ export function AuthScreen({ onAuthed }: AuthScreenProps) {
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleLogin(loginEmail.trim(), loginPassword, 'login');
+                      if (e.key === 'Enter') handleLogin(loginEmail.trim(), loginPassword);
                     }}
                   />
                 </div>
                 <Button
                   className="w-full bg-amber-600 hover:bg-amber-700 text-white"
                   disabled={busy !== null}
-                  onClick={() => handleLogin(loginEmail.trim(), loginPassword, 'login')}
+                  onClick={() => handleLogin(loginEmail.trim(), loginPassword)}
                 >
                   {busy === 'login' ? <Loader2 className="size-4 animate-spin" /> : null}
                   دخول
@@ -165,22 +165,6 @@ export function AuthScreen({ onAuthed }: AuthScreenProps) {
                 {error}
               </p>
             ) : null}
-
-            <div className="mt-5 pt-5 border-t border-stone-100">
-              <Button
-                variant="outline"
-                className="w-full border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
-                disabled={busy !== null}
-                onClick={() => handleLogin('demo@sekretir.app', '123456', 'demo')}
-              >
-                {busy === 'demo' ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Sparkles className="size-4" />
-                )}
-                تجربة سريعة (حساب ديمو)
-              </Button>
-            </div>
           </CardContent>
         </Card>
 
