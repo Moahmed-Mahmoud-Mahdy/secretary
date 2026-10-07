@@ -1,4 +1,5 @@
 import type { ITextToSpeechService } from '../../application/ports';
+import { executeWithKeyRotation } from './gemini-key-provider';
 
 // ============================================================
 // Text-to-speech provider implementation behind
@@ -133,11 +134,6 @@ export class ZaiTextToSpeechService implements ITextToSpeechService {
     const clean = text.replace(/\s+/g, ' ').trim().slice(0, MAX_TTS_CHARS);
     if (!clean) throw new Error('empty tts text');
 
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
-    if (!geminiKey || geminiKey.trim().length === 0) {
-      throw new Error('GEMINI_API_KEY is not configured — TTS disabled');
-    }
-
-    return synthesizeGemini(clean, geminiKey.trim());
+    return executeWithKeyRotation((key) => synthesizeGemini(clean, key));
   }
 }

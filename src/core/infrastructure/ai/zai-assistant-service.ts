@@ -1,4 +1,5 @@
 import { AiInterpretationError } from '../../domain/errors';
+import { executeWithKeyRotation } from './gemini-key-provider';
 import type {
   AiAction,
   AiInterpretation,
@@ -67,11 +68,7 @@ async function completeGemini(messages: { role: 'user' | 'assistant'; content: s
 }
 
 async function complete(messages: { role: 'user' | 'assistant'; content: string }[]): Promise<string> {
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
-  if (!geminiKey || geminiKey.trim().length === 0) {
-    throw new Error('GEMINI_API_KEY is not configured in .env file');
-  }
-  return completeGemini(messages, geminiKey.trim());
+  return executeWithKeyRotation((key) => completeGemini(messages, key));
 }
 
 function extractJson(raw: string): { intent?: string; actions?: unknown } | null {

@@ -1,4 +1,5 @@
 import type { ISpeechToTextService } from '../../application/ports';
+import { executeWithKeyRotation } from './gemini-key-provider';
 
 // ============================================================
 // Speech-to-text provider implementation (Google Gemini ASR) behind
@@ -36,14 +37,8 @@ export class ZaiSpeechService implements ISpeechToTextService {
   async transcribe(audioBase64: string): Promise<string> {
     if (!audioBase64 || audioBase64.length < 100) return '';
 
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
-    if (!geminiKey || geminiKey.trim().length === 0) {
-      console.warn('GEMINI_API_KEY is missing');
-      return '';
-    }
-
     try {
-      return await transcribeGemini(audioBase64, geminiKey.trim());
+      return await executeWithKeyRotation((key) => transcribeGemini(audioBase64, key));
     } catch (e) {
       console.error('ASR error:', e);
       return '';
