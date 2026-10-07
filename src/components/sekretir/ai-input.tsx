@@ -1,11 +1,12 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { Loader2, Mic, Send, Square } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, Mic, Send, Sparkles, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiErrorMessage, endpoints } from '@/lib/sekretir/api';
+import { cn } from '@/lib/utils';
 
 // ============================================================
 // Audio helpers: MediaRecorder blob → 16kHz mono WAV → base64
@@ -95,8 +96,14 @@ async function blobToWavBase64(blob: Blob): Promise<string> {
   return arrayBufferToBase64(wav);
 }
 
+function formatRecordTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
 // ============================================================
-// AiInput — unified text + voice input
+// AiInput — unified text + voice input (Mobile-optimized UX)
 // ============================================================
 
 interface AiInputProps {
@@ -118,11 +125,39 @@ export function AiInput({
 }: AiInputProps) {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [recordTime, setRecordTime] = useState(0);
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Timer while recording
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (recording) {
+      setRecordTime(0);
+      interval = setInterval(() => {
+        setRecordTime((t) => t + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [recording]);
+
+  // Safety auto-stop at 60s
+  useEffect(() => {
+    if (recordTime >= 60 && recording) {
+      stopRecording();
+      toast('أقصى مدة تسجيل 60 ثانية 🎙️');
+    }
+  }, [recordTime, recording]);
 
   async function startRecording() {
+    // Blur input to smoothly dismiss mobile soft keyboard before recording
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -142,7 +177,7 @@ export function AiInput({
       recorderRef.current = recorder;
       recorder.start();
       setRecording(true);
-      toast('بتسجل... دوس تاني لما تخلص 🎙️');
+      toast.info('بتسجل... اتكلم ودوس على المربع لما تخلص 🎙️');
     } catch {
       toast.error('لازم تسمحلي أستخدم الميكروفون 🎤');
     }
@@ -155,6 +190,21 @@ export function AiInput({
     } else {
       setRecording(false);
     }
+  }
+
+  function cancelRecording() {
+    if (recorderRef.current) {
+      recorderRef.current.onstop = null;
+      if (recorderRef.current.state !== 'inactive') {
+        recorderRef.current.stop();
+      }
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    recorderRef.current = null;
+    chunksRef.current = [];
+    setRecording(false);
+    toast('تم إلغاء التسجيل 🛑');
   }
 
   async function handleStopped() {
@@ -194,37 +244,94 @@ export function AiInput({
   }
 
   return (
-    <div className="flex items-center gap-2 bg-white border border-stone-200 rounded-full shadow-sm pl-1.5 pr-4 py-1.5">
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
-        }}
-        placeholder={placeholder}
-        disabled={disabled || recording || transcribing}
-        autoFocus={autoFocus}
-        data-sekretir-chat-input
-        className="border-0 shadow-none focus-visible:ring-0 bg-transparent text-base h-10 flex-1 px-0"
-        aria-label="اكتب لسكرتير"
-      />
+    <div
+      className={cn(
+        'relative w-full max-w-full flex items-center gap-2 bg-white border border-stone-200 rounded-full shadow-sm transition-all duration-300 pl-1.5 pr-2 sm:pr-3 py-1.5 min-h-[48px] overflow-hidden',
+        recording &&
+          'border-rose-400 ring-4 ring-rose-500/10 bg-rose-50/40 shadow-md',
+        transcribing &&
+          'border-amber-400 ring-4 ring-amber-500/10 bg-amber-50/40 shadow-md'
+      )}
+    >
+      {/* Recording active view */}
+      {recording ? (
+        <div className="flex-1 flex items-center justify-between px-2 gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="size-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+            <span className="text-xs font-bold text-rose-700 font-mono shrink-0">
+              {formatRecordTime(recordTime)}
+            </span>
+            <span className="text-xs font-medium text-stone-600 truncate hidden xs:inline">
+              اتكلم بالمصري...
+            </span>
+          </div>
+
+          {/* Equalizer Waveform Animation */}
+          <div className="flex items-center gap-1 shrink-0 px-1" aria-hidden>
+            <span className="w-1 h-3 bg-rose-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.1s]" />
+            <span className="w-1 h-5 bg-rose-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.3s]" />
+            <span className="w-1 h-2 bg-rose-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.2s]" />
+            <span className="w-1 h-6 bg-rose-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.4s]" />
+            <span className="w-1 h-4 bg-rose-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.15s]" />
+          </div>
+
+          {/* Cancel recording button */}
+          <Button
+            type="button"
+            size="icon"
+            onClick={cancelRecording}
+            variant="ghost"
+            className="size-8 rounded-full text-stone-400 hover:text-rose-600 hover:bg-rose-100/60 shrink-0"
+            title="إلغاء التسجيل"
+            aria-label="إلغاء التسجيل"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+      ) : transcribing ? (
+        /* Transcribing processing view */
+        <div className="flex-1 flex items-center gap-2 px-3 min-w-0">
+          <Sparkles className="size-4 text-amber-600 animate-spin shrink-0" />
+          <span className="text-xs font-semibold text-amber-800 truncate">
+            جاري تحويل صوتك وتنفيذ الطلب...
+          </span>
+        </div>
+      ) : (
+        /* Normal text input view */
+        <Input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
+          }}
+          placeholder={placeholder}
+          disabled={disabled || recording || transcribing}
+          autoFocus={autoFocus}
+          data-sekretir-chat-input
+          className="border-0 shadow-none focus-visible:ring-0 bg-transparent text-base h-10 flex-1 px-1 sm:px-2"
+          aria-label="اكتب لسكرتير"
+        />
+      )}
+
+      {/* Mic / Stop Action Button */}
       {recording || transcribing ? (
         <Button
           type="button"
           size="icon"
           disabled={transcribing}
           onClick={stopRecording}
-          className="size-10 rounded-full bg-rose-600 hover:bg-rose-700 text-white shrink-0"
-          aria-label="وقّف التسجيل"
+          className="relative size-10 rounded-full bg-rose-600 hover:bg-rose-700 text-white shrink-0 overflow-hidden shadow-sm flex items-center justify-center transition-transform active:scale-95"
+          aria-label="وقّف التسجيل وابعت"
         >
           {transcribing ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : recording ? (
+            <Loader2 className="size-4 animate-spin relative z-10" />
+          ) : (
             <>
-              <span className="absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-60 animate-ping" />
-              <Square className="size-4 fill-current relative" />
+              <span className="absolute inset-0 rounded-full bg-rose-500 opacity-60 animate-ping" />
+              <Square className="size-4 fill-current relative z-10" />
             </>
-          ) : null}
+          )}
         </Button>
       ) : (
         <Button
@@ -233,18 +340,20 @@ export function AiInput({
           disabled={disabled}
           onClick={startRecording}
           variant="ghost"
-          className="size-10 rounded-full text-stone-500 hover:text-amber-700 hover:bg-amber-50 shrink-0"
+          className="size-10 rounded-full text-stone-500 hover:text-amber-700 hover:bg-amber-50 shrink-0 transition-all active:scale-95"
           aria-label="سجل بصوتك"
         >
           <Mic className="size-5" />
         </Button>
       )}
+
+      {/* Send Text Button */}
       <Button
         type="button"
         size="icon"
         onClick={submit}
         disabled={disabled || recording || transcribing || !value.trim()}
-        className="size-10 rounded-full bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+        className="size-10 rounded-full bg-amber-600 hover:bg-amber-700 text-white shrink-0 transition-transform active:scale-95"
         aria-label="ابعت"
       >
         <Send className="size-4 -scale-x-100" />
