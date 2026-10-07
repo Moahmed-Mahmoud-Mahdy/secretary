@@ -7,7 +7,7 @@ import { executeWithKeyRotation } from './gemini-key-provider';
 // ============================================================
 
 async function transcribeGemini(audioBase64: string, apiKey: string): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${apiKey}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -22,6 +22,7 @@ async function transcribeGemini(audioBase64: string, apiKey: string): Promise<st
         },
       ],
     }),
+    signal: AbortSignal.timeout(10000),
   });
 
   if (!res.ok) {

@@ -4,6 +4,8 @@ import { handleRoute, requireUserId } from '@/lib/api';
 
 const MAX_TEXT_LENGTH = 1000;
 
+export const maxDuration = 30;
+
 // POST /api/ai/tts — سكرتير يتكلم: text → spoken audio (BRD §43).
 export async function POST(req: Request) {
   return handleRoute(async () => {

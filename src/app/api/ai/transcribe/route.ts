@@ -5,6 +5,8 @@ import { handleRoute, requireUserId } from '@/lib/api';
 
 const MAX_AUDIO_BASE64_LENGTH = 15 * 1024 * 1024; // ~11MB raw audio
 
+export const maxDuration = 30;
+
 // POST /api/ai/transcribe — voice input → text (BRD §5.2).
 export async function POST(req: NextRequest) {
   return handleRoute(async () => {

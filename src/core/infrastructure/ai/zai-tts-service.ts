@@ -86,11 +86,16 @@ async function synthesizeGemini(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Gemini TTS error ${res.status}: ${errText}`);
+        const err = new Error(`Gemini TTS error ${res.status}: ${errText}`);
+        if ([400, 401, 403, 404, 429].includes(res.status)) {
+          throw err;
+        }
+        throw err;
       }
 
       const data = await res.json();

@@ -36,20 +36,26 @@ async function completeGemini(messages: { role: 'user' | 'assistant'; content: s
     payload.systemInstruction = { parts: [{ text: systemPrompt }] };
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${apiKey}`;
   let lastErr: Error | null = null;
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8000),
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Gemini API error ${res.status}: ${errText}`);
+        const err = new Error(`Gemini API error ${res.status}: ${errText}`);
+        // Immediately throw on key permission (403), quota (429), or model errors (404/400) so key rotation switches immediately
+        if ([400, 401, 403, 404, 429].includes(res.status)) {
+          throw err;
+        }
+        throw err;
       }
 
       const data = await res.json();
@@ -58,8 +64,13 @@ async function completeGemini(messages: { role: 'user' | 'assistant'; content: s
       return text;
     } catch (err) {
       lastErr = err instanceof Error ? err : new Error(String(err));
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 600 * attempt));
+      // If error is key permission/quota/not-found, rethrow immediately to rotate key
+      const msg = lastErr.message;
+      if (msg.includes('403') || msg.includes('429') || msg.includes('404') || msg.includes('401') || msg.includes('AbortError') || msg.includes('TimeoutError')) {
+        throw lastErr;
+      }
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 400));
       }
     }
   }
