@@ -66,6 +66,7 @@ const ACTION_ICON: Record<string, string> = {
   PLAN_DAY: '🪄',
   QUERY: '🔎',
   CHITCHAT: '💬',
+  CLARIFY: '❓',
 };
 
 interface AssistantViewProps {
@@ -131,7 +132,11 @@ export function AssistantView({
       setMessages((prev) => [...prev, userMsg]);
       setThinking(true);
       try {
-        const res: AiChatResponse = await endpoints.chat(message);
+        const history = messages
+          .filter((m) => m.id !== 'welcome')
+          .slice(-6)
+          .map((m) => ({ role: m.role, content: m.text }));
+        const res: AiChatResponse = await endpoints.chat(message, history);
         const aiMsg: ChatMsg = {
           id: newId(),
           role: 'assistant',
@@ -153,7 +158,7 @@ export function AssistantView({
         setThinking(false);
       }
     },
-    [thinking, onExecutedChange]
+    [thinking, onExecutedChange, messages]
   );
 
   // Handle queued messages coming from other views (e.g. "نظملي يومي")
@@ -383,7 +388,11 @@ function TimeTag({ at, align }: { at: string; align: 'start' | 'end' }) {
     try {
       const d = new Date(at);
       if (Number.isNaN(d.getTime())) return '';
-      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      const hours24 = d.getHours();
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const period = hours24 >= 12 ? 'م' : 'ص';
+      const hours12 = hours24 % 12 || 12;
+      return `${hours12}:${minutes} ${period}`;
     } catch {
       return '';
     }

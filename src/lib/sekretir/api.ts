@@ -399,7 +399,8 @@ export const endpoints = {
     api.post<{ user: UserDTO }>('/api/auth/register', { name, email, password }),
   logout: () => api.post<{ ok: boolean }>('/api/auth/logout'),
 
-  chat: (message: string) => api.post<AiChatResponse>('/api/ai/chat', { message }),
+  chat: (message: string, history?: { role: 'user' | 'assistant'; content: string }[]) =>
+    api.post<AiChatResponse>('/api/ai/chat', { message, history }),
   // NOTE: /api/ai/execute returns a single executed action object (backend shape),
   // while /api/ai/chat returns an array — normalize with normalizeExecuted().
   execute: (pending: AiPendingAction) =>

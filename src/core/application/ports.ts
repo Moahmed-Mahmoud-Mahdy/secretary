@@ -29,11 +29,13 @@ export interface AiAction {
 export interface AiInterpretation {
   intent: string;
   actions: AiAction[];
+  question?: string;
 }
 
 export interface InterpretInput {
   message: string;
   context: AiUserContext;
+  history?: { role: 'user' | 'assistant'; content: string }[];
 }
 
 export interface AnswerQuestionInput {

@@ -11,13 +11,15 @@ const MONTHS_AR = [
   'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ] as const;
 
-/** "HH:mm" from an ISO datetime (UTC getters = Cairo wall clock). */
+/** "h:mm ص/م" from an ISO datetime (UTC getters = Cairo wall clock). */
 export function fmtTime(iso: string | null | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  const m = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
+  const hours24 = d.getUTCHours();
+  const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+  const period = hours24 >= 12 ? 'م' : 'ص';
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${minutes} ${period}`;
 }
 
 /** Arabic weekday name from an ISO datetime, e.g. "التلات". */

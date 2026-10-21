@@ -90,7 +90,11 @@ export function diffMinutes(a: Date, b: Date): number {
 }
 
 export function fmtHHMM(d: Date): string {
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  const hours24 = d.getUTCHours();
+  const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+  const period = hours24 >= 12 ? 'م' : 'ص';
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${minutes} ${period}`;
 }
 
 export const AR_WEEKDAYS = ['الأحد', 'الاثنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت'] as const;

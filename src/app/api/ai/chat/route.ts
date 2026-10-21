@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     const userId = await requireUserId();
     const body = await req.json();
     const message = asString(body.message, 'message');
-    return container.aiChatUseCases.handleMessage(userId, message);
+    const history = Array.isArray(body.history) ? body.history : undefined;
+    return container.aiChatUseCases.handleMessage(userId, message, history);
   });
 }

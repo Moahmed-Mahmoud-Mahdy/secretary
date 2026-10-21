@@ -66,7 +66,7 @@ export interface ChatResultDTO {
   failed: string[];
 }
 
-const MAX_ACTIONS_PER_MESSAGE = 8;
+const MAX_ACTIONS_PER_MESSAGE = 25;
 
 /** Actions that always need explicit user confirmation (BRD §8). */
 const CONFIRMATION_REQUIRED = new Set(['DELETE_TASK', 'UPDATE_TASK', 'DELETE_EVENT']);
@@ -89,12 +89,16 @@ export class AiChatUseCases {
     private readonly projectUseCases: ProjectUseCases
   ) {}
 
-  async handleMessage(userId: string, message: string): Promise<ChatResultDTO> {
+  async handleMessage(
+    userId: string,
+    message: string,
+    history?: { role: 'user' | 'assistant'; content: string }[]
+  ): Promise<ChatResultDTO> {
     const text = message.trim();
     if (!text) throw new AiInterpretationError('اكتب حاجة الأول 😄');
 
     const context = await this.buildContext(userId);
-    const interpretation = await this.ai.interpret({ message: text, context });
+    const interpretation = await this.ai.interpret({ message: text, context, history });
     if (process.env.NODE_ENV !== 'production') {
       console.log('[ai-chat] interpretation:', JSON.stringify(interpretation).slice(0, 500));
     }
@@ -103,18 +107,30 @@ export class AiChatUseCases {
     const pending: PendingActionDTO[] = [];
     const failed: string[] = [];
     let query: QueryDataDTO | null = null;
+    let clarification: string | null = interpretation.question ?? null;
     let chitchat = interpretation.intent === 'CHITCHAT';
 
     const actions = (interpretation.actions ?? []).slice(0, MAX_ACTIONS_PER_MESSAGE);
     // Safety net: when the model returns an intent without actions,
     // synthesize the command from the intent itself.
     const effectiveActions: AiAction[] =
-      actions.length > 0 ? actions : (synthesizeActionFromIntent(interpretation.intent, text) ?? []);
+      actions.length > 0
+        ? actions
+        : (synthesizeActionFromIntent(interpretation.intent, text, interpretation.question) ?? []);
     for (const action of effectiveActions) {
       try {
-        await this.processAction(userId, action, executed, pending, (q) => {
-          query = q;
-        });
+        await this.processAction(
+          userId,
+          action,
+          executed,
+          pending,
+          (q) => {
+            query = q;
+          },
+          (c) => {
+            clarification = c;
+          }
+        );
       } catch (error) {
         failed.push(actionLabel(action));
         if (process.env.NODE_ENV !== 'production') {
@@ -128,8 +144,8 @@ export class AiChatUseCases {
     const queryValue = query as QueryDataDTO | null;
     if (queryValue && queryValue.question) {
       reply = await this.safeAnswerQuestion(queryValue, context.firstName);
-    } else if (executed.length > 0 || pending.length > 0 || failed.length > 0) {
-      reply = this.buildReply(context.firstName, executed, pending, failed);
+    } else if (executed.length > 0 || pending.length > 0 || failed.length > 0 || clarification) {
+      reply = this.buildReply(context.firstName, executed, pending, failed, clarification ?? undefined);
     } else if (chitchat) {
       reply = await this.safeSmallTalk(text, context.firstName);
     } else {
@@ -173,7 +189,8 @@ export class AiChatUseCases {
     action: AiAction,
     executed: ExecutedActionDTO[],
     pending: PendingActionDTO[],
-    setQuery: (q: QueryDataDTO) => void
+    setQuery: (q: QueryDataDTO) => void,
+    setClarification: (q: string) => void
   ): Promise<void> {
     const type = String(action.type ?? '').toUpperCase();
 
@@ -185,6 +202,7 @@ export class AiChatUseCases {
           priority: str(action.priority) ?? undefined,
           estimatedMinutes: num(action.estimatedMinutes),
           deadline: str(action.deadline),
+          recurrence: str(action.recurrence),
           projectId: await this.resolveProjectId(userId, str(action.projectName)),
         });
         executed.push({ type: 'TASK', action: 'CREATED', summary: this.taskSummary(created), refId: created.id });
@@ -313,9 +331,9 @@ export class AiChatUseCases {
         const toDate = str(action.toDate) ?? str(action.date);
         if (!toDate || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('postpone without valid toDate');
         const toTime = str(action.toTime);
-        const timeMatch = toTime?.match(/^(\d{1,2}):(\d{2})/);
-        const hh = timeMatch ? String(Math.min(23, Number(timeMatch[1]))).padStart(2, '0') : null;
-        const mm = timeMatch ? timeMatch[2] : null;
+        const parsedTime = parseTimeString(toTime);
+        const hh = parsedTime?.hh ?? null;
+        const mm = parsedTime?.mm ?? null;
         const deadlineIso = hh && mm ? `${toDate}T${hh}:${mm}:00` : `${toDate}T23:59:59`;
         const updated = await this.taskUseCases.update(userId, task.id, { deadline: deadlineIso });
         const newDeadline = parseWallIso(deadlineIso);
@@ -511,6 +529,13 @@ export class AiChatUseCases {
         const question = str(action.question) ?? str(action.raw) ?? 'سؤال المستخدم';
         const data = await this.fetchQueryData(userId, queryType);
         setQuery({ queryType, question, data });
+        return;
+      }
+      case 'CLARIFY': {
+        const question = str(action.question) ?? str(action.message);
+        if (question) {
+          setClarification(question);
+        }
         return;
       }
       case 'CHITCHAT':
@@ -764,6 +789,10 @@ export class AiChatUseCases {
       if (!isMidnight) text += ` الساعة ${fmtHHMM(deadline)}`;
     }
     if (task.estimatedMinutes) text += ` (تقريبًا ${task.estimatedMinutes} دقيقة)`;
+    if (task.recurrence) {
+      const recLabels: Record<string, string> = { DAILY: 'يوميًا', WEEKLY: 'أسبوعيًا', MONTHLY: 'شهريًا' };
+      text += ` [${recLabels[task.recurrence] ?? task.recurrence}]`;
+    }
     return text;
   }
 
@@ -776,7 +805,8 @@ export class AiChatUseCases {
     firstName: string,
     executed: ExecutedActionDTO[],
     pending: PendingActionDTO[],
-    failed: string[]
+    failed: string[],
+    clarification?: string
   ): string {
     const openers = ['تمام', 'ماشي', 'تحت أمرك', 'تم'];
     const opener = openers[Math.floor(Math.random() * openers.length)];
@@ -790,6 +820,13 @@ export class AiChatUseCases {
     }
     if (failed.length > 0) {
       parts.push(`معلش، معرفتش أنفذ (${failed.join('، ')}) — جرب تاني.`);
+    }
+    if (clarification) {
+      if (parts.length > 0) {
+        parts.push(clarification);
+      } else {
+        parts.push(`${opener} يا ${firstName}، ${clarification}`);
+      }
     }
     return parts.join(' ');
   }
@@ -836,7 +873,7 @@ export class AiChatUseCases {
  * Intent → command fallback for intent-only responses (Command
  * Generation safety net — keeps the pipeline resilient).
  */
-function synthesizeActionFromIntent(intent: string, message: string): AiAction[] | null {
+function synthesizeActionFromIntent(intent: string, message: string, question?: string): AiAction[] | null {
   const normalized = String(intent ?? '').toUpperCase();
   switch (normalized) {
     case 'QUERY':
@@ -845,9 +882,28 @@ function synthesizeActionFromIntent(intent: string, message: string): AiAction[]
       return [{ type: 'CHITCHAT', message }];
     case 'PLAN_DAY':
       return [{ type: 'PLAN_DAY', date: null }];
+    case 'CLARIFY':
+      return [{ type: 'CLARIFY', question: question || message }];
     default:
       return null;
   }
+}
+
+function parseTimeString(raw: string | undefined): { hh: string; mm: string } | null {
+  if (!raw) return null;
+  const s = raw.trim();
+  const isPM = /م|pm|مساءً|مساء/i.test(s);
+  const isAM = /ص|am|صباحاً|صباح/i.test(s);
+  const m = s.match(/(\d{1,2})(?::(\d{2}))?/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  if (isPM && h < 12) h += 12;
+  if (isAM && h === 12) h = 0;
+  return {
+    hh: String(Math.min(23, h)).padStart(2, '0'),
+    mm: String(Math.min(59, min)).padStart(2, '0'),
+  };
 }
 
 function str(value: unknown): string | undefined {
